@@ -232,6 +232,10 @@ struct sbfp {
 
 #endif  /* !defined(_IEEE_C) */
 
+#if defined(FEATURE_S380)
+#define FEATURE_ESAME
+#endif
+
 /* externally defined architecture-dependent functions */
 /* I guess this could go into an include file... */
 #define vfetch4 ARCH_DEP(vfetch4)

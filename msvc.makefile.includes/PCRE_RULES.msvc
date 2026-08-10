@@ -21,10 +21,10 @@
 !IFDEF PCRE_DIR
 
 $(X)$(PCRE_DLLNAME1):
-    XCOPY "$(PCRE_DLLPATH1)" $(X) /V /C /F /H /R /K /O /X /Y
+    XCOPY "$(PCRE_DLLPATH1)" $(X) /V /C /F /H /R /K /Y
 
 $(X)$(PCRE_DLLNAME2):
-    XCOPY "$(PCRE_DLLPATH2)" $(X) /V /C /F /H /R /K /O /X /Y
+    XCOPY "$(PCRE_DLLPATH2)" $(X) /V /C /F /H /R /K /Y
 
 allpcre: allHercules \
     $(X)$(PCRE_DLLNAME1) \

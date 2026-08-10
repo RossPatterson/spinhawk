@@ -241,6 +241,7 @@ int fbcopy(     FILE            *fout,
 
     num_extents = f1dscb->ds1noepv;
     lrecl = (f1dscb->ds1lrecl[0] << 8) | (f1dscb->ds1lrecl[1]);
+    if (lrecl == 0) lrecl = 1;
     if (absvalid) {
         strcpy(zdsn, argdsn);
         if (debug) fprintf(stderr, "fbcopy absvalid\n");
@@ -1134,6 +1135,8 @@ int main(int argc, char **argv) {
         if (dsorg & (DSORG_PS * 256)) {
             if ((dadsm.f1buf.ds1recfm & RECFM_FORMAT) == RECFM_FORMAT_F) 
                 bail = 0;
+            if ((dadsm.f1buf.ds1recfm & RECFM_FORMAT) == RECFM_FORMAT_U) 
+                bail = 0;
             if ((dadsm.f1buf.ds1recfm & RECFM_FORMAT) == RECFM_FORMAT_V) {
                 bail = 1;               // not yet
                 fprintf(stderr, "dasdseq only supports RECFM=F[B]\n");
@@ -1150,7 +1153,7 @@ int main(int argc, char **argv) {
 
     hostpath(pathname, argdsn, sizeof(pathname));
 
-    fout = fopen(pathname, (tran_ascii) ? "wb" : "w");
+    fout = fopen(pathname, (tran_ascii) ? "w" : "wb");
     if (fout == NULL) {
         fprintf(stderr, "dasdseq unable to open output file %s, %s\n",
                 argdsn, strerror(errno));

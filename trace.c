@@ -48,6 +48,12 @@
 
 #include "inline.h"
 
+
+#if defined(FEATURE_S380)
+#define FEATURE_ESAME
+#endif
+
+
 #if defined(FEATURE_TRACING)
 
 #if !defined(_TRACE_H)

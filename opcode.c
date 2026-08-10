@@ -40,6 +40,7 @@
 
 #include "opcode.h"
 
+DEF_INST(dyninst_opcode_75);
 
 #define UNDEF_INST(_x) \
         DEF_INST(_x) { ARCH_DEP(operation_exception) \
@@ -121,6 +122,7 @@
 #if !defined(FEATURE_SET_ADDRESS_SPACE_CONTROL_FAST)
  UNDEF_INST(set_address_space_control_fast)
 #else /*!defined(FEATURE_SET_ADDRESS_SPACE_CONTROL_FAST)*/
+ #define s370_set_address_space_control_fast s370_set_address_space_control
  #define s390_set_address_space_control_fast s390_set_address_space_control
  #define z900_set_address_space_control_fast z900_set_address_space_control
 #endif /*!defined(FEATURE_SET_ADDRESS_SPACE_CONTROL_FAST)*/
@@ -334,7 +336,7 @@
 
 #if !defined(FEATURE_VECTOR_FACILITY)
  UNDEF_INST(execute_a4xx)
- #if !defined(FEATURE_ESAME) && !defined(FEATURE_ESAME_N3_ESA390)
+ #if !defined(FEATURE_ESAME) && !defined(FEATURE_ESAME_N3_ESA390) && !defined(FEATURE_S380)
   UNDEF_INST(execute_a5xx)
  #endif /*!defined(FEATURE_ESAME) && !defined(FEATURE_ESAME_N3_ESA390)*/
 
@@ -370,7 +372,7 @@
 #endif /*!defined(FEATURE_VECTOR_FACILITY)*/
 
 
-#if !defined(FEATURE_ESAME) && !defined(FEATURE_ESAME_N3_ESA390)
+#if !defined(FEATURE_ESAME) && !defined(FEATURE_ESAME_N3_ESA390) && !defined(FEATURE_S380)
  UNDEF_INST(execute_e3xx)
  UNDEF_INST(execute_ecxx)
  UNDEF_INST(execute_c0xx)
@@ -825,7 +827,7 @@
 #endif /*!defined(FEATURE_CHSC)*/
 
 
-#if !defined(FEATURE_ESAME_N3_ESA390) && !defined(FEATURE_ESAME)
+#if !defined(FEATURE_ESAME_N3_ESA390) && !defined(FEATURE_ESAME) && !defined(FEATURE_S380)
  UNDEF_INST(add_logical_carry)
  UNDEF_INST(add_logical_carry_register)
  UNDEF_INST(branch_relative_and_save_long)
@@ -845,7 +847,7 @@
 #endif /*!defined(FEATURE_ESAME_N3_ESA390) && !defined(FEATURE_ESAME)*/
 
 
-#if !defined(FEATURE_ESAME_N3_ESA390) && !defined(_900) && !defined(FEATURE_ESAME)
+#if !defined(FEATURE_ESAME_N3_ESA390) && !defined(_900) && !defined(FEATURE_ESAME) && !defined(FEATURE_S380)
  UNDEF_INST(store_facility_list);
 #endif /*!defined(FEATURE_ESAME_N3_ESA390) && !defined(_900) && !defined(FEATURE_ESAME)*/
 
@@ -1018,7 +1020,7 @@
    as the called routine has the same arguments, and the routine
    exits immediately after the call.                             *JJ */
 
-#if ARCH_MODE != ARCH_370
+#if ARCH_MODE != ARCH_370 || defined(FEATURE_S380)
 DEF_INST(execute_01xx)
 {
     regs->ARCH_DEP(opcode_01xx)[inst[1]](inst, regs);
@@ -1075,7 +1077,7 @@ DEF_INST(execute_e6xx)
 }
 #endif
 
-#if defined(FEATURE_ESAME) || defined(FEATURE_ESAME_N3_ESA390)
+#if defined(FEATURE_ESAME) || defined(FEATURE_ESAME_N3_ESA390) || defined(FEATURE_S380)
 DEF_INST(execute_a5xx)
 {
     regs->ARCH_DEP(opcode_a5xx)[inst[1]](inst, regs);
@@ -1960,6 +1962,7 @@ int d2,b2;
 
 /* Gabor Hoffer (performance option) */
 DLL_EXPORT zz_func s370_opcode_table[256];
+static zz_func s370_opcode_01xx[256];
 static zz_func s370_opcode_a4xx[256];
 static zz_func s370_opcode_a5xx[256];
 static zz_func s370_opcode_a6xx[256];
@@ -2024,8 +2027,13 @@ int i;
     {
 #if defined(_370)
         s370_opcode_table[i] = opcode_table[i][ARCH_370];
+        s370_opcode_01xx [i] = opcode_01xx [i][ARCH_370];
         s370_opcode_a4xx [i] = v_opcode_a4xx [i][ARCH_370];
+#if defined(FEATURE_S380)
+        s370_opcode_a5xx [i] = opcode_a5xx [i&0x0F][ARCH_370];
+#else
         s370_opcode_a5xx [i] = v_opcode_a5xx [i][ARCH_370];
+#endif
         s370_opcode_a6xx [i] = v_opcode_a6xx [i][ARCH_370];
         s370_opcode_a7xx [i] = opcode_a7xx [i&0x0F][ARCH_370];
         s370_opcode_b2xx [i] = opcode_b2xx [i][ARCH_370];
@@ -2092,6 +2100,7 @@ void set_opcode_pointers(REGS *regs)
 #if defined(_370)
     memcpy(regs->s370_opcode_table, s370_opcode_table,
            sizeof(s370_opcode_table));
+    regs->s370_opcode_01xx = s370_opcode_01xx;
     regs->s370_opcode_a4xx = s370_opcode_a4xx;
     regs->s370_opcode_a5xx = s370_opcode_a5xx;
     regs->s370_opcode_a6xx = s370_opcode_a6xx;
@@ -2211,8 +2220,8 @@ DLL_EXPORT zz_func opcode_table[256][GEN_MAXARCH] = {
  /*08*/   GENx370x___x___ (set_storage_key,RR,"SSK"),
  /*09*/   GENx370x___x___ (insert_storage_key,RR,"ISK"),
  /*0A*/   GENx370x390x900 (supervisor_call,RR_SVC,"SVC"),
- /*0B*/   GENx___x390x900 (branch_and_set_mode,RR,"BSM"),
- /*0C*/   GENx___x390x900 (branch_and_save_and_set_mode,RR,"BASSM"),
+ /*0B*/   GENx370x390x900 (branch_and_set_mode,RR,"BSM"),
+ /*0C*/   GENx370x390x900 (branch_and_save_and_set_mode,RR,"BASSM"),
  /*0D*/   GENx370x390x900 (branch_and_save_register,RR,"BASR"),
  /*0E*/   GENx370x390x900 (move_long,RR,"MVCL"),
  /*0F*/   GENx370x390x900 (compare_logical_character_long,RR,"CLCL"),
@@ -2317,7 +2326,7 @@ DLL_EXPORT zz_func opcode_table[256][GEN_MAXARCH] = {
  /*72*/   GENx___x___x___ ,
  /*73*/   GENx___x___x___ ,
  /*74*/   GENx___x___x___ ,
- /*75*/   GENx___x___x___ ,
+ /*75*/   GENx370x390x900 (dyninst_opcode_75,RX,"TCPIP"),
  /*76*/   GENx___x___x___ ,
  /*77*/   GENx___x___x___ ,
  /*78*/   GENx370x390x900 (load_float_short,RX,"LE"),
@@ -3080,7 +3089,11 @@ DLL_EXPORT zz_func opcode_b2xx[256][GEN_MAXARCH] = {
  /*B238*/ GENx___x390x900 (resume_subchannel,none,"RSCH"),
  /*B239*/ GENx___x390x900 (store_channel_report_word,S,"STCRW"),
  /*B23A*/ GENx___x390x900 (store_channel_path_status,S,"STCPS"),
+#if 0 /*def FEATURE_S380*/
+ /*B23B*/ GENx___x390x900_real (reset_channel_path,none,"RCHP"),
+#else
  /*B23B*/ GENx___x390x900 (reset_channel_path,none,"RCHP"),
+#endif
  /*B23C*/ GENx___x390x900 (set_channel_monitor,none,"SCHM"),
  /*B23D*/ GENx___x390x900 (store_zone_parameter,S,"STZP"),
  /*B23E*/ GENx___x390x900 (set_zone_parameter,S,"SZP"),

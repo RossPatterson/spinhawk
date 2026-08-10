@@ -8,6 +8,8 @@
 
 #include "hercules.h"
 
+#define TTYLINE_SZ 512
+
 typedef struct _COMMADPT_RING
 {
     BYTE *bfr;
@@ -44,6 +46,7 @@ struct COMMADPT
     COMMADPT_RING outbfr;       /* Output buffer ring                       */
     COMMADPT_RING pollbfr;      /* Ring used for POLL data                  */
     COMMADPT_RING rdwrk;        /* Inbound data flow work ring              */
+    COMMADPT_RING ttybuf;       /* async: partial TTY input line            */
     U16  devnum;                /* devnum copy from DEVBLK                  */
     BYTE dialdata[32];          /* Dial data information                    */
     U16  dialcount;             /* data count for dial                      */
@@ -82,8 +85,23 @@ struct COMMADPT
     u_int telnet_int:1;         /* telnet interrupt received                */
     u_int eol_flag:1;           /* carriage return received flag            */
     u_int uctrans:1;            /* Uppercase translate flag                 */
+    u_int dumb_bs:1;            /* perform backspace editing in driver      */
+    u_int dumb_break:1;         /* map ASCII ETX (Ctrl-C) to interrupt/attn */
+    u_int haltprepare:1;        /* for race condition circumvention         */
+    u_int rxvt4apl:1;           /* 2741 mode for rxvt4apl                   */
+    u_int overstrike_flag:1;    /* overstrike sequence in progress          */
+    u_int crlf_opt:1;           /* map 2741 NL to CRLF                      */
+    u_int sendcr_opt:1;         /* send CR after input line received        */
+    u_int binary_opt:1;         /* initiate telnet binary mode              */
     BYTE telnet_cmd;            /* telnet command received                  */
     BYTE byte_skip_table[256];  /* async: characters to suppress in output  */
+    BYTE input_byte_skip_table[256];  /* async: characters to suppress in input  */
+    BYTE prepend_length;        /* number of bytes (0-4) to prepend         */
+    BYTE prepend_bytes[4];      /* bytes to prepend (per prepend_length)    */
+    BYTE append_length;         /* number of bytes (0-4) to append          */
+    BYTE append_bytes[4];       /* bytes to append (per append_length)      */
+    BYTE eol_char;              /* end of line character                    */
+    BYTE saved_char;            /* saved previous character for overstrike  */
 };
 
 enum commadpt_lnctl {
