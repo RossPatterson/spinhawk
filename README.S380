@@ -1,0 +1,125 @@
+This version of Hercules is a modification by Paul
+Edwards to standard Hercules 3.07 from:
+
+http://www.hercules-390.org
+
+to support the S/380 architecture.
+
+This version of Hercules/380 should have pretty much
+all z/Arch instructions enabled. But note that you
+can no longer use a 1052 terminal, you need to use
+3215 instead. That's because 1052 has been repurposed
+to produce an EBCDIC ANSI terminal for use with
+micro-emacs under PDOS.
+
+If you wish to recreate the source code (Unix users
+must do this), you will need to go there and download 
+the Hercules 3.07 source code and then apply the patch 
+provided here (hercules380*.txt) using the Unix "patch" 
+utility (or equivalent). E.g. if you are in the same
+directory as this readme file, you would use a command
+something like this:
+
+patch -p 1 <hercules380...txt
+
+Also see the COPYRIGHT file and go to that HTML page
+to read the license agreement.
+
+
+Tip for people needing source.  The additional source
+you need can be obtained from here:
+http://www.pcre.org/
+http://www.zlib.net/
+http://www.bzip.org/
+
+Note that as of Hercules/380 3.06 v 6.0, choosing S/370
+will have no effect - it will be S/380. This is until
+Fish's Hercgui is updated to recognize S/380. If you
+require a plain S/370, just run normal Hercules. Obviously
+you will lose the various enhancements such as extra
+TDF tape formats if you do that.
+
+Also check this if you are recompiling from source on
+Windows and don't have access to VC2005:
+
+http://www.softdevlabs.com/Hercules/hercules-msvc-build.html
+
+Although what I am actually using is:
+
+Download VC2005 from:
+
+http://download.microsoft.com/download/8/3/a/83aad8f9-38ba-4503-b3cd-ba28c360c27b/ENU/vcsetup.exe
+
+Download SDK from here:
+
+http://www.microsoft.com/en-gb/download/confirmation.aspx?id=3138
+
+Run this batch file:
+
+if %ZLIB_DIR%. == . goto needset
+goto bypass
+:needset
+rem call setenv /XP32 /RETAIL
+rem call setenv /release /x86 /xp
+call setenv /release /x86 /xp
+path %path%;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin;c:\winpath;C:\Windows\System32
+call vcvars32
+set ZLIB_DIR=c:\zlib
+set PCRE_DIR=c:\pcre
+set BZIP2_DIR=c:\bzip2
+rem set CFG=RETAIL
+rem patch -p 1 <../hercules380-3_05-1_0.txt
+:bypass
+rem nmake -f makefile.msvc clean
+rem nmake -f makefile.msvc
+nmake -f makefile-dllmod.msvc clean
+nmake -f makefile-dllmod.msvc
+
+
+Or at least, I was. Now I believe I am using VC2008,
+which I think is what allows 64-bit building, so I
+now have 32-bit building:
+
+if %ZLIB_DIR%. == . goto needset
+goto bypass
+:needset
+rem call setenv /XP32 /RETAIL
+call setenv /release /x86 /xp
+rem call setenv /release /x64 /xp
+path %path%;C:\Program Files (x86)\Microsoft Visual Studio 9.0\VC\bin;c:\winpath;C:\Windows\System32
+call vcvars32
+set ZLIB_DIR=c:\zlib
+set PCRE_DIR=c:\pcre
+set BZIP2_DIR=c:\bzip2
+rem set CFG=RETAIL
+rem patch -p 1 <../hercules380-3_05-1_0.txt
+:bypass
+rem nmake -f makefile.msvc clean
+rem nmake -f makefile.msvc
+nmake -f makefile-dllmod.msvc clean
+nmake -f makefile-dllmod.msvc
+
+and 64-bit building:
+
+if %ZLIB_DIR%. == . goto needset
+goto bypass
+:needset
+rem call setenv /XP32 /RETAIL
+rem call setenv /release /x86 /xp
+call setenv /release /x64 /xp
+path %path%;C:\Program Files (x86)\Microsoft Visual Studio 9.0\VC\bin;c:\winpath;C:\Windows\System32
+call vcvars64
+set ZLIB_DIR=c:\zlib
+set PCRE_DIR=c:\pcre
+set BZIP2_DIR=c:\bzip2
+rem set CFG=RETAIL
+rem patch -p 1 <../hercules380-3_05-1_0.txt
+:bypass
+rem nmake -f makefile.msvc clean
+rem nmake -f makefile.msvc
+nmake -f makefile-dllmod.msvc clean
+nmake -f makefile-dllmod.msvc
+
+
+Every time I upgrade laptop I have a nightmare of
+how to install the Microsoft C compiler that works.

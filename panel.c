@@ -49,6 +49,8 @@ int     redraw_msgs;                    /* 1=Redraw message area     */
 int     redraw_cmd;                     /* 1=Redraw command line     */
 int     redraw_status;                  /* 1=Redraw status line      */
 
+volatile int keybd_avail = 1;
+
 /*=NP================================================================*/
 /* Global data for new panel display                                 */
 /*   (Note: all NPD mods are identified by the string =NP=           */
@@ -918,6 +920,10 @@ static void NP_screen_redraw (REGS *regs)
     set_pos   (1, 1);
     draw_text ("  Hercules  CPU    :    %");
     fill_text (' ', 30);
+#ifdef FEATURE_S380
+    if (sysblk.s380) draw_text("S/380");
+    else
+#endif
     draw_text ((char *)get_arch_mode_string(NULL));
     fill_text (' ', 38);
     set_color (COLOR_LIGHT_GREY, COLOR_BLUE );
@@ -1250,6 +1256,10 @@ static void NP_update(REGS *regs)
 
     /* Redraw the register template if the regmode switched */
     mode = (regs->arch_mode == ARCH_900 && (NPregdisp == 0 || NPregdisp == 1));
+#if defined(FEATURE_S380)
+    mode = 1;
+#endif
+
     zhost =
 #if defined(_FEATURE_SIE)
             (regs->arch_mode != ARCH_900
@@ -1915,13 +1925,13 @@ char    buf[1024];                      /* Buffer workarea           */
 #if defined( _MSVC_ )
         /* Wait for keyboard input */
 #define WAIT_FOR_KEYBOARD_INPUT_SLEEP_MILLISECS  (20)
-        for (i=sysblk.panrate/WAIT_FOR_KEYBOARD_INPUT_SLEEP_MILLISECS; i && !kbhit(); i--)
+        for (i=sysblk.panrate/WAIT_FOR_KEYBOARD_INPUT_SLEEP_MILLISECS; i && keybd_avail && !kbhit(); i--)
             Sleep(WAIT_FOR_KEYBOARD_INPUT_SLEEP_MILLISECS);
 
         ADJ_SCREEN_SIZE();
 
         /* If keyboard input has [finally] arrived, then process it */
-        if ( kbhit() )
+        if ( keybd_avail && kbhit() )
         {
             /* Read character(s) from the keyboard */
             kbbuf[0] = getch();
@@ -2896,6 +2906,7 @@ FinishShutdown:
 #endif /*defined(_FEATURE_SIE)*/
                     len += sprintf (buf+len, "%2d%c%c%c%c%c%c%c%c",
                            regs->psw.amode64                  ? 64 :
+                           regs->psw.amode32                  ? 32 :
                            regs->psw.amode                    ? 31 : 24, 
                            regs->cpustate == CPUSTATE_STOPPED ? 'M' : '.',
                            sysblk.inststep                    ? 'T' : '.',

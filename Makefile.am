@@ -158,7 +158,6 @@ dyndev_SRC         = commadpt.c  \
                      qeth.c      \
                      con1052c.c
 
-
 # -module         : create a dlopen'able module
 # -no-undefined   : required on all platform that do not allow shared modules
 #                   to have undefined symbols

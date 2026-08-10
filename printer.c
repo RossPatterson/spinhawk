@@ -565,7 +565,7 @@ static void printer_execute_ccw (DEVBLK *dev, BYTE code, BYTE flags,
 int             rc = 0;                 /* Return code               */
 int             i;                      /* Loop counter              */
 int             num;                    /* Number of bytes to move   */
-char           *eor;                    /* -> end of record string   */
+char           *eor = "";               /* -> end of record string   */
 BYTE            c;                      /* Print character           */
 
     /* Reset flags at start of CCW chain */
@@ -601,7 +601,7 @@ BYTE            c;                      /* Print character           */
     /*---------------------------------------------------------------*/
     /* WRITE WITHOUT SPACING                                         */
     /*---------------------------------------------------------------*/
-        eor = "\r";
+        eor = ""; /* nothing needed when writing to a file */
         goto write;
 
     case 0x09:
@@ -615,21 +615,21 @@ BYTE            c;                      /* Print character           */
     /*---------------------------------------------------------------*/
     /* WRITE AND SPACE 2 LINES                                       */
     /*---------------------------------------------------------------*/
-        eor = dev->crlf ? "\r\n\n" : "\n\n";
+        eor = dev->crlf ? "\r\n\r\n" : "\n\n";
         goto write;
 
     case 0x19:
     /*---------------------------------------------------------------*/
     /* WRITE AND SPACE 3 LINES                                       */
     /*---------------------------------------------------------------*/
-        eor = dev->crlf ? "\r\n\n\n" : "\n\n\n";
+        eor = dev->crlf ? "\r\n\r\n\r\n" : "\n\n\n";
         goto write;
 
     case 0x89:
     /*---------------------------------------------------------------*/
     /* WRITE AND SKIP TO CHANNEL 1                                   */
     /*---------------------------------------------------------------*/
-        eor = dev->crlf ? "\r\f" : "\f";
+        eor = dev->crlf ? "\r\n\f" : "\f";
         goto write;
 
     case 0xC9:
@@ -787,7 +787,7 @@ BYTE            c;                      /* Print character           */
     /*---------------------------------------------------------------*/
     /* SPACE 2 LINES IMMEDIATE                                       */
     /*---------------------------------------------------------------*/
-        eor = dev->crlf ? "\r\n\n" : "\n\n";
+        eor = dev->crlf ? "\r\n\r\n" : "\n\n";
         write_buffer (dev, eor, strlen(eor), unitstat);
         if (*unitstat != 0) break;
 
@@ -801,7 +801,7 @@ BYTE            c;                      /* Print character           */
     /*---------------------------------------------------------------*/
     /* SPACE 3 LINES IMMEDIATE                                       */
     /*---------------------------------------------------------------*/
-        eor = dev->crlf ? "\r\n\n\n" : "\n\n\n";
+        eor = dev->crlf ? "\r\n\r\n\r\n" : "\n\n\n";
         write_buffer (dev, eor, strlen(eor), unitstat);
         if (*unitstat != 0) break;
 
@@ -851,7 +851,7 @@ BYTE            c;                      /* Print character           */
     /*---------------------------------------------------------------*/
     /* SKIP TO CHANNEL 1 IMMEDIATE                                   */
     /*---------------------------------------------------------------*/
-        eor = dev->crlf ? "\r\f" : "\f";
+        eor = dev->crlf ? "\r\n\f" : "\f";
         write_buffer (dev, eor, strlen(eor), unitstat);
         if (*unitstat != 0) break;
 
@@ -875,9 +875,9 @@ BYTE            c;                      /* Print character           */
         *unitstat = CSW_CE | CSW_DE;
         break;
 
-    case 0xE3: case 0xDB:
+    case 0xE3: case 0xDB: case 0xA3: case 0xBB: case 0x9B: case 0xD9:
     /*---------------------------------------------------------------*/
-    /* SKIP TO CHANNEL 12 IMMEDIATE (or 11)                          */
+    /* SKIP TO various channel numbers                               */
     /*---------------------------------------------------------------*/
         eor = dev->crlf ? "\r\n" : "\n";
         write_buffer (dev, eor, strlen(eor), unitstat);

@@ -263,7 +263,8 @@ struct REGS {                           /* Processor registers       */
      /* Opcode table pointers                                        */
 
         FUNC    s370_opcode_table[256];
-        FUNC   *s370_opcode_a4xx,
+        FUNC   *s370_opcode_01xx,
+               *s370_opcode_a4xx,
                *s370_opcode_a5xx,
                *s370_opcode_a6xx,
  #if defined(MULTI_BYTE_ASSIST)
@@ -400,6 +401,12 @@ struct SYSBLK {
         BYTE   *mainstor;               /* -> Main storage           */
         BYTE   *storkeys;               /* -> Main storage key array */
         U32     xpndsize;               /* Expanded size (4K pages)  */
+        int     am24mode;               /* What AM24 should do       */
+        int     am31mode;               /* What AM31 should do       */
+        int     am64mode;               /* What AM64 should do       */
+        int     hdltput;                /* Handle TPUT etc           */
+        volatile int     G_tput;
+        volatile int     G_tputlive;
         BYTE   *xpndstor;               /* -> Expanded storage       */
         U64     todstart;               /* Time of initialisation    */
         U64     cpuid;                  /* CPU identifier for STIDP  */
@@ -560,6 +567,14 @@ struct SYSBLK {
         int     pcpu;                   /* Tgt CPU panel cmd & displ */
         int     hercprio;               /* Hercules process priority */
         int     todprio;                /* TOD Clock thread priority */
+#ifdef FEATURE_S380
+        int     s380;                   /* S/380 architecture        */
+        int     mvs_special;            /* special MVS processing    */
+        int     vse_special;            /* special VSE processing    */
+#if VSE_UNPATCHED
+        RADR    vse_real;               /* What VSE really has       */
+#endif
+#endif
         int     cpuprio;                /* CPU thread priority       */
         int     devprio;                /* Device thread priority    */
         TID     httptid;                /* HTTP listener thread id   */

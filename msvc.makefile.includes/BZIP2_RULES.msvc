@@ -21,7 +21,7 @@
 !IFDEF BZIP2_DIR
 
 $(X)libbz2.dll:
-    XCOPY "$(BZIP2_DLL)" $(X) /V /C /F /H /R /K /O /X /Y
+    XCOPY "$(BZIP2_DLL)" $(X) /V /C /F /H /R /K /Y
 
 alllibbz2: allHercules \
     $(X)libbz2.dll

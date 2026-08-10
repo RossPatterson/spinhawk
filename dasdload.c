@@ -120,15 +120,171 @@ typedef struct _TTRCONV {
 static  BYTE eighthexFF[] = {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
 BYTE twelvehex00[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 BYTE cvol_low_key[] = {0, 0, 0, 0, 0, 0, 0, 1};
+
+
+/* Note that the copious comments below were written by Paul
+   Edwards and are released to the public domain.
+
+   At IPL time, the hardware places a single CCW (8 bytes)
+   at location 0 in memory, and then executes it. That
+   single CCW looks like:
+   0x02, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x18
+   or in its more normal format (for a format 0 (classic) CCW),
+   x'02',x'000000',x'60,00',x'0018'
+   
+   The 0x02 is an IPL read. An "IPL read" is different
+   from a normal read (0x06) in that the IPL read includes a
+   seek to cylinder 0, head 0. The next 3 bytes are location
+   0, then we have 0x60 which is the command chaining bit (0x40)
+   plus the SLI bit (0x20) which says to ignore a length
+   mismatch, then 0x00 which is a reserved byte, then
+   a 2-byte length of 0x0018, ie 24 bytes. This CCW is
+   thus expecting the first record of the disk to be 24
+   bytes, and to overlay memory address 0 with that 24
+   bytes. Don't forget that this CCW is already in location 0,
+   so it will be overlaid (but that's OK, it has already
+   been fetched at that point). Also don't forget that the
+   chaining bit is on, so it will continue executing the
+   next CCW in memory. ie since the CCW at location 0 has
+   already been executed, it will now execute the CCW
+   at location 8. There didn't use to be anything at this
+   location, but after reading 24 bytes, there should be
+   a new CCW at location 8.
+   
+   For more information on IPL see pages 4-35 to 4-37 in 
+   GA-22-7000-10 S/370 Principles of Operation available here:
+   http://www.bitsavers.org/
+   pdf/ibm/370/princOps/GA22-7000-10_370_Principles_of_Operation_Sep87.pdf
+   
+      
+   Record 1 of an IPLable DASD consists of 24 bytes, plus a
+   4-byte key of "IPL1".
+   These 24 bytes are loaded at location 0 in memory.
+   The first 8 data bytes are a PSW of 0, which is never
+   actually used. This field is known as "NEWPSW" and later
+   on in the IPL process, the PSW located at location 0 is
+   indeed used. But that will only happen after the IPL
+   program is loaded from record 4.
+*/
+
 BYTE iplpsw[8] =    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+
+/* The first CCW starts with a command of x'06' which means to
+   read a data block. Normally you would use a command of x'07'
+   to position to the right cylinder/head/record, but we do not
+   need to do this at the moment, because the disk is already
+   correctly positioned ready to read the next record of interest,
+   which is record 2.
+   
+   After the command x'06' we have an address of 0x003a98, which
+   is where the data will be loaded as it is read from disk.
+   Next we have "flags" of 0x60. The 0x40 is the CC bit which
+   means after executing this CCW, go and execute the next one,
+   also known as "CCW chaining". The 0x20 is the SLI bit which
+   says don't worry if the length of the block on the disk is
+   different from what we have specified in the CCW.
+   
+   After the 0x60 we have a reserved byte of 0x00 and then
+   the next 2 bytes are the length, in this case 0x60, ie
+   we intend to read 96 bytes. This is longer than we will
+   actually have data for, as we will be reading the IPL2
+   record which in our case is only 4 * 8 + 6 + 5 = 43 bytes.
+   
+   Also note that because we are using a command of x'06',
+   we will only be reading the data portion of the IPL2
+   record, ignoring the key which is the bytes "IPL2". If
+   we had use a command of x'0e' we would have the text
+   "IPL2" including in the output from the read. We are
+   not at all interested in the text "IPL2".
+*/
+
 BYTE iplccw1[8] =   {0x06, 0x00, 0x3A, 0x98, 0x60, 0x00, 0x00, 0x60};
+
+
+/* The second CCW starts with command of x'08' which is TIC,
+   or "Transfer in Channel". This command contains an address
+   of 0x3a98, which means it will start executing whatever is
+   found at address 0x3a98. We are expecting that will now
+   be filled in by data from the previous read. The 0x40 bit is
+   set as well, which tells it to automatically execute the
+   CCW at that new location.
+*/
+
 BYTE iplccw2[8] =   {0x08, 0x00, 0x3A, 0x98, 0x00, 0x00, 0x00, 0x00};
+
+
+/* Next we have the data that is designed to go into the IPL2
+   record. This is just the data, not the key. There is a 4-byte
+   key preceding the data, containing the text "IPL2". The CCWs
+   from IPL1 will load all this data at address 0x3A98. The data
+   below consists of 4 CCWs, 8 bytes each, ie 32 bytes. Those 32
+   bytes will take us from 0x3A98 to 0x3AB8. At 0x3AB8 we have
+   6 bytes containing the BBCCHH, followed by 5 bytes containing
+   the CCHHR. IPL2 is normally designed to load record 4 of
+   cylinder 0, head 0. That is why the very last byte below
+   is 0x04. The real IPL program is designed to be located in
+   record 4 of cylinder 0 head 0, and that is where you will
+   find real code instead of just CCWs. That IPL program will
+   be read in to location 0 in memory, and the first 8 bytes
+   will be the "new PSW" which will execute real code. Note that
+   record 3 of cylinder 0 head 0 is the "VOL1" record which
+   contains the name of the disk. This record is unusual in
+   that it has a 4-byte key of "VOL1" and also the first 4
+   bytes of the data contain the same "VOL1" string, so when
+   you dump the key+data you will see "VOL1" twice.
+*/
+
 BYTE ipl2data[] =   {0x07, 0x00, 0x3A, 0xB8, 0x40, 0x00, 0x00, 0x06,
+                     /* 07 ... = go to the track number found at
+                        address 003AB8, which is the 6-byte
+                        BBCCHH. The flag of 0x40 says to chain
+                        the CCWs, and the length of 0x06 is
+                        the number of bytes for the BBCCHH. */
+                        
                      0x31, 0x00, 0x3A, 0xBE, 0x40, 0x00, 0x00, 0x05,
+                     /* 31 ... = search for the identifier found at
+                        memory address 003ABE. This is the CCHHR
+                        data below. You can see that this is
+                        cylinder 0, head 0, record 4, which is
+                        the normal place for the IPL program. 
+                        Note that the flag is 0x40, signalling
+                        continued CCW chaining, and the length
+                        is 5, which is how long the CCHHR is. Also
+                        note that the 0x31 sets the "status modifier"
+                        bit on success, which causes the CCW
+                        execution to advance by 16 bytes instead
+                        of the normal 8 bytes, meaning one CCW
+                        will be skipped. In this case, the following
+                        TIC will be skipped. */
+                        
                      0x08, 0x00, 0x3A, 0xA0, 0x00, 0x00, 0x00, 0x00,
-                     0x06, 0x00, 0x00, 0x00, 0x20, 0x00, 0x19, 0x60,
+                     /* 08 ... = go back (TIC) to address 0x3AA0
+                        which is the search (0x31) until
+                        it is successful */
+                        
+                     0x06, 0x00, 0x00, 0x00, 0x20, 0x00, 0x7f, 0xff,
+                     /* 06 ... = read the data block. The first
+                        3 0x00 constitute the memory address to
+                        load the data to, ie location 0 in
+                        memory. The flag of 0x20 is SLI to ignore
+                        length errors, and the length of the data
+                        is 0x7fff, ie approx 32K. Note that we
+                        don't have bit 0x40 (chain CCW) set, so
+                        this is the end of the CCW chain and the
+                        hardware will now load the PSW stored at
+                        location 0 in memory and start executing code. */
+                        
                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /*BBCCHH*/
+                     /* note that the BB above is a "bin number"
+                        and is only used for the 2321 magnetic
+                        strip reader that has bins of strips. This
+                        should always be 0 when doing disk
+                        operations. */
+                        
                      0x00, 0x00, 0x00, 0x00, 0x04}; /*CCHHR*/
+
+
 BYTE noiplpsw[8] =  {0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0F};
 BYTE noiplccw1[8] = {0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
 BYTE noiplccw2[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -716,15 +872,48 @@ int             keylen;                 /* Key length                */
 int             datalen;                /* Data length               */
 int             maxtrks = 1;            /* Maximum track count       */
 DATABLK        *datablk;                /* -> data block             */
-BYTE            buf[4096];              /* Buffer for data block     */
+static BYTE     buf[32767];           /* Buffer for data block     */
+int             separate = 0;           /* Is IPL code a
+  separate file on the disk instead of the normal situation of
+  placing it in record 4 of track 0? */
 
+    if ((iplfnm != NULL) && (strcmp(iplfnm, "separate") == 0))
+    {
+        separate = 1;
+    }
+    
     /* For 2311 the IPL text will not fit on track 0 record 4,
        so adjust the IPL2 so that it loads from track 1 record 1 */
-    if (devtype == 0x2311)
+    /* Ditto for sepearate loaders */
+    if ((devtype == 0x2311) || separate)
     {
+        /* first clobber the BBCCHH with head 1 instead of head 0 */
         memcpy (ipl2data + 32, "\x00\x00\x00\x00\x00\x01", 6);
+        
+        /* Then clobber the CCHHR with head 1 and record 1 instead
+           of the normal head 0 record 4 */
         memcpy (ipl2data + 38, "\x00\x00\x00\x01\x01", 5);
         maxtrks = 2;
+    }
+    
+    if (separate)
+    {
+        /* large binary files need more room. This will put the
+           CCWs above the 1 MB mark, which is hopefully
+           enough for now. Note that the CCW data contained in
+           record 2 (IPL2) is normally placed at location
+           0x003a98. This restricts the IPL code to 15000 bytes
+           which is too small for some systems such as PDOS.
+           Adding 0x100000 (1 MiB) to all the addresses means
+           that we have a bit more than 1 MiB for the IPL
+           program. Note that we need to change record 1 (IPL1),
+           to tell it the new location to load the data, and 
+           the new location to "goto". We need to change
+           record 2 (IPL2) so that it knows the new location
+           of the BBCCHH, the new location of the CCHHR and
+           the new location to "goto". */
+        iplccw1[1] = iplccw2[1] = ipl2data[1] = ipl2data[9] 
+            = ipl2data[17] = 0x10;
     }
 
     /* Read track 0 */
@@ -736,7 +925,7 @@ BYTE            buf[4096];              /* Buffer for data block     */
     init_track (trklen, cif->trkbuf, *outcyl, *outhead, &outusedv);
     cif->trkmodif = 1;
 
-    /* Build the IPL1 record */
+    /* Build the IPL1 record (record 1) */
     memset (buf, 0, sizeof(buf));
     datablk = (DATABLK*)buf;
     convert_to_ebcdic (datablk->kdarea, 4, "IPL1");
@@ -763,7 +952,7 @@ BYTE            buf[4096];              /* Buffer for data block     */
                 &outtrk, outcyl, outhead, &outrec);
     if (rc < 0) return -1;
 
-    /* Build the IPL2 record */
+    /* Build the IPL2 record (record 2) */
     memset (buf, 0, sizeof(buf));
     datablk = (DATABLK*)buf;
     convert_to_ebcdic (datablk->kdarea, 4, "IPL2");
@@ -782,7 +971,7 @@ BYTE            buf[4096];              /* Buffer for data block     */
                 &outtrk, outcyl, outhead, &outrec);
     if (rc < 0) return -1;
 
-    /* Build the VOL1 record */
+    /* Build the VOL1 record (record 3) */
     memset (buf, 0x40, sizeof(buf));
     datablk = (DATABLK*)buf;
     convert_to_ebcdic (datablk->kdarea, 4, "VOL1");
@@ -800,7 +989,9 @@ BYTE            buf[4096];              /* Buffer for data block     */
     if (rc < 0) return -1;
 
     /* Build the IPL text from the object file */
-    if (iplfnm != NULL)
+    /* Note that if we have a "separate" file then we
+       will not build this (record 4). */
+    if (iplfnm != NULL && !separate)
     {
         memset (buf, 0, sizeof(buf));
         datalen = read_ipl_text (iplfnm, buf+12, sizeof(buf)-12);
@@ -1023,7 +1214,7 @@ time_t          timeval;                /* Current time value        */
     f1dscb->ds1volsq[0] = 0;
     f1dscb->ds1volsq[1] = 1;
     f1dscb->ds1credt[0] = tmptr->tm_year;
-    f1dscb->ds1credt[1] = (tmptr->tm_yday >> 8) & 0xFF;
+    f1dscb->ds1credt[1] = (++tmptr->tm_yday >> 8) & 0xFF;
     f1dscb->ds1credt[2] = tmptr->tm_yday & 0xFF;
     f1dscb->ds1expdt[0] = 0;
     f1dscb->ds1expdt[1] = 0;
@@ -3489,11 +3680,15 @@ char            pathname[MAX_PATH];     /* sfname in host path format*/
         XMERRF ("HHCDL121E SEQ dsorg must be PS or DA: dsorg=0x%2.2x\n",dsorg);
         return -1;
     }
-    if (recfm != RECFM_FORMAT_F && recfm != (RECFM_FORMAT_F|RECFM_BLOCKED))
+    if (recfm != RECFM_FORMAT_F 
+        && recfm != (RECFM_FORMAT_F|RECFM_BLOCKED)
+        && recfm != RECFM_FORMAT_U)
     {
-        XMERRF ("HHCDL122E SEQ recfm must be F or FB: recfm=0x%2.2x\n",recfm);
+        XMERRF ("HHCDL122E SEQ recfm must be F or FB or U: "
+                "recfm=0x%2.2x\n",recfm);
         return -1;
     }
+    if ((lrecl == 0) && (recfm == RECFM_FORMAT_U)) lrecl = 1;
     if (blksz == 0) blksz = lrecl;
     if (lrecl == 0) lrecl = blksz;
     if (lrecl == 0 || blksz % lrecl != 0
@@ -4406,6 +4601,8 @@ char            pathname[MAX_PATH];     /* cfname in host path format*/
     /* Process optional arguments */
     for ( ; argc > 1 && argv[1][0] == '-'; argv++, argc--)
     {
+        /* a single - can be used for the control file */
+        if (argv[1][1] == '\0') break;
         if (strcmp("0", &argv[1][1]) == 0)
             comp = CCKD_COMPRESS_NONE;
 #ifdef CCKD_COMPRESS_ZLIB
@@ -4446,8 +4643,15 @@ char            pathname[MAX_PATH];     /* cfname in host path format*/
     }
 
     /* Open the control file */
-    hostpath(pathname, cfname, sizeof(pathname));
-    cfp = fopen (pathname, "r");
+    if (strcmp(cfname, "-") == 0)
+    {
+        cfp = stdin;
+    }
+    else
+    {
+        hostpath(pathname, cfname, sizeof(pathname));
+        cfp = fopen (pathname, "r");
+    }
     if (cfp == NULL)
     {
         XMERRF ("HHCDL001E Cannot open %s: %s\n",
@@ -4564,7 +4768,10 @@ char            pathname[MAX_PATH];     /* cfname in host path format*/
                         outcyl, outhead);
 
     /* Close files and release buffers */
-    fclose (cfp);
+    if (strcmp(cfname, "-") != 0)
+    {
+        fclose (cfp);
+    }
     close_ckd_image (cif);
 
     return rc;
