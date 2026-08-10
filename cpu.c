@@ -241,6 +241,8 @@ void ARCH_DEP(store_psw) (REGS *regs, BYTE *addr)
                        ) << 8
                      )
                    | regs->psw.zerobyte
+                   | (regs->psw.amode64 ? 0x01 : 0)
+                   | (regs->psw.amode32 ? 0x02 : 0)
                    )
                  );
         if(unlikely(regs->psw.zeroilc))
@@ -285,6 +287,7 @@ void ARCH_DEP(store_psw) (REGS *regs, BYTE *addr)
                        ) << 8
                      )
                    | (regs->psw.amode64 ? 0x01 : 0)
+                   | (regs->psw.amode32 ? 0x02 : 0)
                    | regs->psw.zerobyte
                    )
                  );
@@ -317,6 +320,21 @@ int ARCH_DEP(load_psw) (REGS *regs, BYTE *addr)
 
         SET_IC_ECMODE_MASK(regs);
 
+#if defined(FEATURE_S380)
+        /* In case we are running CMS under CP, this LPSW may
+           be wiping out the 31-bit flag. So record the address
+           ready to be restored. */
+        if ( sysblk.s380 
+             && regs->psw.amode
+             && (regs->psw.s380_bc == 0
+                 || regs->cr[1].F.L.F == 0)) {
+            regs->psw.s380_bc = regs->psw.IA_L;
+            regs->psw.s380_cr1 = regs->cr[1].F.L.F;
+            regs->psw.s380_am32 = regs->psw.amode32;
+            regs->psw.s380_am64 = regs->psw.amode64;
+        }
+#endif
+
         /* Processing for EC mode PSW */
         regs->psw.intcode  = 0;
         regs->psw.asc      = (addr[2] & 0xC0);
@@ -325,18 +343,81 @@ int ARCH_DEP(load_psw) (REGS *regs, BYTE *addr)
         regs->psw.amode    = (addr[4] & 0x80) ? 1 : 0;
 
 #if defined(FEATURE_ESAME)
-        regs->psw.zerobyte = addr[3] & 0xFE;
+        regs->psw.zerobyte = addr[3] & 0xFC;
         regs->psw.amode64  = addr[3] & 0x01;
+        regs->psw.amode32  = (addr[3] & 0x02) ? 1 : 0;
         regs->psw.zeroword = fetch_fw(addr+4) & 0x7FFFFFFF;
         regs->psw.IA       = fetch_dw (addr + 8);
         regs->psw.AMASK    = regs->psw.amode64 ? AMASK64
+                           : regs->psw.amode32 ? AMASK32
                            : regs->psw.amode   ? AMASK31 : AMASK24;
 #else /*!defined(FEATURE_ESAME)*/
         regs->psw.zerobyte = addr[3];
         regs->psw.amode64  = 0;
+        regs->psw.amode32  = 0;
         regs->psw.IA       = fetch_fw(addr + 4) & 0x7FFFFFFF;
         regs->psw.AMASK    = regs->psw.amode ? AMASK31 : AMASK24;
 #endif /*!defined(FEATURE_ESAME)*/
+
+#if defined(FEATURE_S380)
+        regs->psw.amode64  = addr[3] & 0x01;
+        regs->psw.amode32  = (addr[3] & 0x02) ? 1 : 0;
+
+        /* Because when running CMS under CP there are LPSWs
+           being done in virtual BCMODE that don't know about
+           AMODE 31, we need to restore the app's AMODE
+           status by looking at the address */
+        if (sysblk.s380 
+            && (regs->psw.s380_bc != 0) 
+            && (regs->psw.IA_L == regs->psw.s380_bc)
+            && (regs->cr[1].F.L.F == regs->psw.s380_cr1)) {
+            regs->psw.s380_bc = 0;
+            regs->psw.s380_cr1 = 0;
+            regs->psw.amode = 1;
+            regs->psw.amode32 = regs->psw.s380_am32;
+            regs->psw.amode64 = regs->psw.s380_am64;
+        }
+
+#if 1
+        /* SVC 6 (LINK) in MVS 3.8j or MVS/380 is not smart enough to
+           recognize an AM32 (aka AM64) module so fails to switch
+           off PSW.31 when it clears PSW.32. So we potentially
+           need to do that in Hercules/380 instead. However, since
+           LINK is documented as not working in AM64, and you're
+           meant to use LINKX instead, it is actually better if it
+           continues to fail. So we don't activate this code. */
+        /* Code needed to be reactivated for AM32 issues dealing
+           with a SPIE */
+        if (!regs->psw.amode)
+        {
+            regs->psw.amode64 = 0;
+            regs->psw.amode32 = 0;
+        }
+#endif
+
+        if (regs->psw.amode)
+        {
+            if (sysblk.am31mode == 32)
+            {
+                if (!regs->psw.amode64)
+                {
+                    regs->psw.amode32 = 1;
+                }
+            }
+            else if (sysblk.am31mode == 64)
+            {
+                if (!regs->psw.amode32)
+                {
+                    regs->psw.amode64 = 1;
+                }
+            }
+        }
+
+        regs->psw.zerobyte = addr[3] & 0xFC;
+        regs->psw.AMASK    = regs->psw.amode64 ? AMASK64
+                           : regs->psw.amode32 ? AMASK32
+                           : regs->psw.amode   ? AMASK31 : AMASK24;
+#endif
 
         /* Bits 0 and 2-4 of system mask must be zero */
         if ((addr[0] & 0xB8) != 0)
@@ -377,10 +458,14 @@ int ARCH_DEP(load_psw) (REGS *regs, BYTE *addr)
 #endif /*!FEATURE_ACCESS_REGISTERS*/
 
         /* Check validity of amode and instruction address */
-#if defined(FEATURE_ESAME)
+#if defined(FEATURE_ESAME) || defined(FEATURE_S380)
         /* For ESAME, bit 32 cannot be zero if bit 31 is one */
         if (regs->psw.amode64 && !regs->psw.amode)
             return PGM_SPECIFICATION_EXCEPTION;
+#if defined(FEATURE_S380)
+        if (regs->psw.amode32 && !regs->psw.amode)
+            return PGM_SPECIFICATION_EXCEPTION;
+#endif
 
         /* If bit 32 is zero then IA cannot exceed 24 bits */
         if (!regs->psw.amode && regs->psw.IA > 0x00FFFFFF)
@@ -418,7 +503,7 @@ int ARCH_DEP(load_psw) (REGS *regs, BYTE *addr)
 
         regs->psw.zerobyte = 0;
         regs->psw.asc = 0;
-        regs->psw.amode64 = regs->psw.amode = 0;
+        regs->psw.amode64 = regs->psw.amode32 = regs->psw.amode = 0;
     }
 #endif /*defined(FEATURE_BCMODE)*/
 
@@ -1769,7 +1854,11 @@ REGS    regs;
         sysblk.regs[cpu] = &regs;
         release_lock(&sysblk.cpulock[cpu]);
         logmsg (_("HHCCP007I CPU%4.4X architecture mode set to %s\n"),
-                cpu, get_arch_mode_string(&regs));
+                cpu, 
+#ifdef FEATURE_S380
+        sysblk.s380 ? "S/380" :
+#endif
+        get_arch_mode_string(&regs));
     }
     else
     {
@@ -1779,7 +1868,11 @@ REGS    regs;
             return NULL;
 
         logmsg (_("HHCCP003I CPU%4.4X architecture mode %s\n"),
-                cpu, get_arch_mode_string(&regs));
+                cpu,
+#ifdef FEATURE_S380
+       sysblk.s380 ? "S/380" :
+#endif
+       get_arch_mode_string(&regs));
 
 #ifdef FEATURE_VECTOR_FACILITY
         if (regs->vf->online)

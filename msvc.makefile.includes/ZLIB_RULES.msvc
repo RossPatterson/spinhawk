@@ -21,7 +21,7 @@
 !IFDEF ZLIB_DIR
 
 $(X)zlib1.dll:
-    XCOPY "$(ZLIB_DLL)" $(X) /V /C /F /H /R /K /O /X /Y
+    XCOPY "$(ZLIB_DLL)" $(X) /V /C /F /H /R /K /Y
 
 allzlib: allHercules \
     $(X)zlib1.dll
