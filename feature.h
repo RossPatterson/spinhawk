@@ -842,7 +842,7 @@ do { \
  /*
   * Accelerated lookup
   */
-#define MADDR_STD(_addr, _arn, _regs, _acctype, _akey) \
+#define MADDRL_STD(_addr, _len, _arn, _regs, _acctype, _akey) \
  ( \
        likely((_regs)->aea_ar[(_arn)]) \
    &&  likely( \
@@ -863,7 +863,6 @@ do { \
      ) \
  )
 
-
 #ifdef FEATURE_S380
 
 #if VSE_UNPATCHED
@@ -873,7 +872,7 @@ do { \
 #define VSE_SPECIAL(_addr) 0
 #endif
 
-#define MADDR_S380(_addr, _arn, _regs, _acctype, _akey) \
+#define MADDRL_S380(_addr, _len, _arn, _regs, _acctype, _akey) \
 (   ((_regs)->psw.amode && sysblk.s380 \
       && (((_addr) & 0xffffffffff000000ULL) != 0)) \
     ? \
@@ -894,15 +893,20 @@ do { \
               ((_acctype) | ACC_NOTLB), (_akey)) \
  ) \
     : \
-    MADDR_STD(_addr, _arn, _regs, _acctype, _akey) \
+    MADDRL_STD(_addr, _len, _arn, _regs, _acctype, _akey) \
 )
 
 #endif
 
+/* Old style accelerated lookup (without length) */
+#define MADDR(_addr, _arn, _regs, _acctype, _akey) \
+    MADDRL( (_addr), 1, (_arn), (_regs), (_acctype), (_akey))
+
+
 #if defined(FEATURE_S380)
-#define MADDR MADDR_S380
+#define MADDRL MADDRL_S380
 #else
-#define MADDR MADDR_STD
+#define MADDRL MADDRL_STD
 #endif
 
 /*

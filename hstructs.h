@@ -290,6 +290,7 @@ struct REGS {                           /* Processor registers       */
                *s370_opcode_c2xx,                               /*208*/
                *s370_opcode_c4xx,                               /*208*/
                *s370_opcode_c6xx,                               /*208*/
+               *s370_opcode_ccxx,                               /*810*/
                *s370_opcode_e4xx,
                *s370_opcode_e5xx,
                *s370_opcode_e6xx,
@@ -320,6 +321,7 @@ struct REGS {                           /* Processor registers       */
                *s390_opcode_c2xx,
                *s390_opcode_c4xx,                               /*208*/
                *s390_opcode_c6xx,                               /*208*/
+               *s390_opcode_ccxx,                               /*810*/
                *s390_opcode_e4xx,
                *s390_opcode_e5xx,
                *s390_opcode_ecxx,

@@ -1306,7 +1306,7 @@ DEF_INST(execute_c8xx)
 }
 #endif /*defined(FEATURE_ESAME)*/
 
-#if defined(FEATURE_ESAME)                                      /*810*/
+#if defined(FEATURE_ESAME)  || defined(FEATURE_S380)            /*810*/
 DEF_INST(execute_ccxx)                                          /*810*/
 {                                                               /*810*/
     regs->ARCH_DEP(opcode_ccxx)[inst[1]](inst, regs);           /*810*/
