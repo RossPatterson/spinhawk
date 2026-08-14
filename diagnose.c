@@ -47,6 +47,10 @@
 
 #endif /*!defined(_DIAGNOSE_H)*/
 
+#if defined(FEATURE_HERCULES_DIAGCALLS)
+int trace_cmd(int argc, char *argv[], char *cmdline);
+#endif
+
 #if defined(OPTION_DYNAMIC_LOAD) && defined(FEATURE_HERCULES_DIAGCALLS)
 
 void ARCH_DEP(diagf14_call)(int r1, int r3, REGS *regs)
@@ -524,6 +528,19 @@ U32   code;
         ARCH_DEP(diagf14_call) (r1, r2, regs);
         break;
 #endif /*defined(OPTION_DYNAMIC_LOAD)*/
+
+    case 0xF18:
+    /*---------------------------------------------------------------*/
+    /* Diagnose F18: Hercules trace all                              */
+    /*---------------------------------------------------------------*/
+        {
+/* #define T_RANGE "b5000-c8240" */
+#define T_RANGE "000000-FFFFFF"
+            static char *x[] = { "t+", T_RANGE };
+
+            trace_cmd(2, x, "t+ " T_RANGE);
+        }
+        break;
 
 #if !defined(NO_SIGABEND_HANDLER)
     /* The following diagnose calls cause a exigent (non-repressible)

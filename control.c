@@ -791,7 +791,9 @@ VADR    effective_addr2;                /* Effective address         */
                       effective_addr2 != 0xF08)
 #endif
 
+#if !defined(FEATURE_UNPRIV_DIAG)
     PRIV_CHECK(regs);
+#endif
 
     SIE_INTERCEPT(regs);
 
@@ -1911,6 +1913,11 @@ U16     updated = 0;                    /* Updated control regs      */
         regs->CR_L((r1 + i) & 0xF) = fetch_fw (p2);
         updated |= BIT((r1 + i) & 0xF);
     }
+
+#ifdef FEATURE_S380
+    /* unconditionally switch on additional floating point */
+    regs->CR_L(0) |= CR0_AFP;
+#endif
 
     /* Actions based on updated control regs */
     SET_IC_MASK(regs);

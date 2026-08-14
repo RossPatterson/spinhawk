@@ -43,6 +43,7 @@
 #include "opcode.h"
 #include "inline.h"
 #include "clock.h"
+#include "sllib.h"
 
 
 /*-------------------------------------------------------------------*/
@@ -1316,6 +1317,340 @@ U32     n;                              /* 32-bit operand values     */
 }
 
 
+#if 1
+#ifndef EZAHANDLER_DEFINED
+#define EZAHANDLER_DEFINED
+/* If we have received an EZASOKET dummy SVC, then R2 will
+   point to the EZASOKET parameters, and R4 will have an
+   address of a 1000-byte area of addressable memory. This
+   is typically used to store a hostent structure. It is
+   beyond Hercules's scope to know where this memory came
+   from. However, it will be checked to make sure it is
+   writable. Not sure what happens if the buffer crosses
+   a page boundary with one page swapped out, but it probably 
+   won't be pretty. */
+
+static void ezahandler(REGS *regs)
+{
+    char keywd[50];
+    U32 *parms;
+    BYTE   *p;
+    U32  new;
+    BYTE   *gstor; /* global storage */
+    static struct hostent *h; /* kludge */
+    static int sockfd; /* kludge */
+
+    /* we have some "global" storage available in R4 */
+    /* I haven't figured out what that "0" means either */
+    gstor = (BYTE *)MADDR (regs->GR_L(4), 0, regs, ACCTYPE_READ, regs->psw.pkey);
+
+    /* get parameters from R1 */
+    parms = (U32 *)MADDR (regs->GR_L(1), 0, regs, ACCTYPE_READ, regs->psw.pkey);
+
+    /* now get parameter 1 to EZASOKET, which is the function required */
+    p = (BYTE *)&parms[0];
+    /* There's bound to be a macro that would do this, but I
+       didn't notice it in hmacros */
+    new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+    p = MADDR(new, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+
+    /* finally we're pointing to the EBCDIC string */
+    /* time to convert to ASCII. Although we could do the */
+    /* comparison in EBCDIC */
+
+    strncpy(keywd, (char *)p, sizeof keywd);
+    keywd[sizeof keywd - 1] = '\0';
+    sl_etoa(NULL, keywd, strlen(keywd));
+
+    if (strcmp(keywd, "GETHOSTBYNAME") == 0)
+    {
+        char www[1000];
+            
+        /* now we need parameter 3, which is a URL to look up */
+        p = (BYTE *)&parms[2];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+
+        /* finally we are pointing to the address */
+        /* convert to ASCII then do the proper call */
+
+        strncpy(www, (char *)p, sizeof www);
+        www[sizeof www - 1] = '\0';
+        sl_etoa(NULL, www, strlen(www));
+        h = gethostbyname(www);
+
+        /* we use the global storage to store an MVS-style
+           hostent */
+
+        /* we are expecting an address to be filled in. If
+           you look at socket.h in tcpip380 (ie *not* in
+           Hercules), you will be able to match up offsets.
+           Copy the data straight in */            
+        memcpy(gstor + 200 + 200 + 2 + 2, h->h_addr, 4);
+           
+        /* now their 4th parameter is an address pointer. They
+           need this filled in to point to that structure which
+           we have just created. So, it's simply to a pointer
+           to the global storage "the system" provided in R4. */
+
+        p = (BYTE *)&parms[3];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_WRITE, regs->psw.pkey);
+          
+        /* Need to ensure that the address is given in
+           big-endian form. There's probably a macro for this
+           somewhere too. */
+        new = regs->GR_L(4);
+        p[0] = new >> 24;
+        p[1] = (new >> 16) & 0xff;
+        p[2] = (new >> 8) & 0xff;
+        p[3] = new & 0xff;
+    }
+    else if (strcmp(keywd, "SOCKET  ") == 0)
+    {
+        sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        /* their 6th parameter is a pointer to return code */
+        p = (BYTE *)&parms[5];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_WRITE, regs->psw.pkey);
+
+        /* Need to ensure that the value is given in
+           big-endian form. There's probably a macro for this
+           somewhere too. */
+        p[0] = sockfd >> 24;
+        p[1] = (sockfd >> 16) & 0xff;
+        p[2] = (sockfd >> 8) & 0xff;
+        p[3] = sockfd & 0xff;
+    }
+    else if (strcmp(keywd, "CONNECT ") == 0)
+    {
+        struct sockaddr_in sockain;
+        int ret;
+
+        /* the 3rd parameter is the socket address,
+           and we mainly need the port number */
+        p = (BYTE *)&parms[2];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+
+        memset(&sockain, 0, sizeof sockain);
+        sockain.sin_family = AF_INET;
+        /* kludge - use address from gethostbyname */
+        memcpy(&sockain.sin_addr.s_addr,
+               h->h_addr,
+               sizeof sockain.sin_addr.s_addr);
+        /* we keep the port in big-endian format */
+        memcpy(&sockain.sin_port, p + 2, 2);
+        /* kludge - use sockfd from last socket() call */
+        ret = connect(sockfd,
+                      (struct sockaddr *)&sockain,
+                      sizeof sockain);
+
+        socket_set_blocking_mode(sockfd, 0);
+
+        /* their 5th parameter is a pointer to the return code */
+        p = (BYTE *)&parms[4];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_WRITE, regs->psw.pkey);
+
+        /* Need to ensure that the value is given in
+           big-endian form. There's probably a macro for this
+           somewhere too. */
+        p[0] = ret >> 24;
+        p[1] = (ret >> 16) & 0xff;
+        p[2] = (ret >> 8) & 0xff;
+        p[3] = ret & 0xff;
+    }
+    else if (strcmp(keywd, "RECV    ") == 0)
+    {
+        long len;
+        int cnt;
+
+        /* we need parameter 4, which is a length */
+        p = (BYTE *)&parms[3];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+        len = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+
+        /* parameter 5 is the buffer */
+        p = (BYTE *)&parms[4];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_WRITE, regs->psw.pkey);
+        
+        /* kludge - use sockfd from last socket() call */
+        cnt = read_socket(sockfd, p, len);
+        if (cnt <= 0)
+        {
+            usleep(100000); /* sleep for 0.1 seconds to prevent hard polling */
+        }
+
+        /* their 7th parameter is a pointer to the return code */
+        p = (BYTE *)&parms[6];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_WRITE, regs->psw.pkey);
+
+        /* Need to ensure that the value is given in
+           big-endian form. There's probably a macro for this
+           somewhere too. */
+        p[0] = cnt >> 24;
+        p[1] = (cnt >> 16) & 0xff;
+        p[2] = (cnt >> 8) & 0xff;
+        p[3] = cnt & 0xff;
+    }
+    else if (strcmp(keywd, "SEND    ") == 0)
+    {
+        long len;
+        int cnt;
+
+        /* we need parameter 4, which is a length */
+        p = (BYTE *)&parms[3];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+        len = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+
+        /* parameter 5 is the buffer */
+        p = (BYTE *)&parms[4];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+        
+        /* kludge - use sockfd from last socket() call */
+        cnt = write_socket(sockfd, p, len);
+        /* fprintf(stderr, "wrote %d bytes, data %s, ret %d\n", (int)len, p, cnt);
+        for (;;) ; */
+
+        /* their 7th parameter is a pointer to the return code */
+        p = (BYTE *)&parms[6];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_WRITE, regs->psw.pkey);
+
+        /* Need to ensure that the value is given in
+           big-endian form. There's probably a macro for this
+           somewhere too. */
+        p[0] = cnt >> 24;
+        p[1] = (cnt >> 16) & 0xff;
+        p[2] = (cnt >> 8) & 0xff;
+        p[3] = cnt & 0xff;
+    }
+    else if (strcmp(keywd, "CLOSE   ") == 0)
+    {
+        /* kludge */
+        close_socket(sockfd);
+    }
+    return;
+}
+#endif
+#endif
+
+#if defined(FEATURE_S380) && defined( _MSVC_ ) && !defined(ALREADY_DONE)
+#define ALREADY_DONE
+static TCHAR    g_szSaveTitle[ 512 ] = {0};
+static LPCTSTR  g_pszTempTitle = _T("{98C1C303-2A9E-11d4-9FF5-0060677l8D04}");
+#pragma comment( lib, "gdi32" )
+static HWND FindConsoleHandle()
+{
+    HWND hWnd;
+    if (!GetConsoleTitle(g_szSaveTitle,ARRAYSIZE(g_szSaveTitle)))
+        return NULL;
+    if (!SetConsoleTitle(g_pszTempTitle))
+        return NULL;
+    Sleep(20);
+    hWnd = FindWindow(NULL,g_pszTempTitle);
+    SetConsoleTitle(g_szSaveTitle);
+    return hWnd;
+}
+
+static int imginit = 0;
+static HDC imghdc;
+static HWND imghwnd;
+static void DisplayImage(int startrow, int startcol, int width, int height, char *buf)
+{
+    static COLORREF red = RGB(255,0,0);
+    static COLORREF black = RGB(0,0,0);
+    COLORREF color;
+    int x;
+    int y;
+
+    if (!imginit)
+    {
+        imghwnd = FindConsoleHandle();
+        imghdc = GetDC(imghwnd);
+        imginit = 1;
+    }
+    for (y = 0; y < height; y++)
+    {
+        for (x = 0; x < width; x++)
+        {
+            color = black;
+            if (buf[y * width + x] != 0)
+            {
+                color = red;
+            }
+            SetPixel(imghdc, startrow + x, startcol + y, color);
+        }
+    }
+    return;
+}
+
+static void TermImage(void)
+{
+    if (imginit)
+    {
+        ReleaseDC(imghwnd, imghdc);
+        imginit = 0;
+    }
+}
+
+#pragma comment( lib, "winmm" )
+static void GetJoy(REGS *regs)
+{
+    JOYINFO ji;
+    MMRESULT ret;
+    UINT joyID;
+    U32 *parms;
+    BYTE *p;
+    U32 new;
+
+    parms = (U32 *)MADDR (regs->GR_L(1), 0, regs, ACCTYPE_READ, regs->psw.pkey);
+    p = (BYTE *)&parms[0];
+    new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+    p = MADDR(new, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+
+    joyID = JOYSTICKID1;
+    ret = joyGetPos(joyID, &ji);
+    if (ret == JOYERR_NOERROR)
+    {
+        regs->GR_L(15) = 0;
+        /* range is 0 to 65535, middle is 32767 */
+        p[0] = (ji.wXpos >> 8) & 0xff;
+        p[1] = ji.wXpos & 0xff;
+        p[2] = (ji.wYpos >> 8) & 0xff;
+        p[3] = ji.wYpos & 0xff;
+        /* printf("wXpos is %u, wYpos is %u\n", ji.wXpos, ji.wYpos); */
+        p[4] = 0;
+        if (ji.wButtons & JOY_BUTTON1)
+        {
+            p[4] |= 1;
+            /* printf("button 1 was pressed\n"); */
+        }
+        if (ji.wButtons & JOY_BUTTON2)
+        {
+            p[4] |= 2;
+        }
+    }
+    else
+    {
+        regs->GR_L(15) = 1;
+    }
+    return;
+}
+
+#include "hconsole.h"
+
+extern volatile int keybd_avail;
+
+#endif
+
+
 /*-------------------------------------------------------------------*/
 /* 0A   SVC   - Supervisor Call                                 [RR] */
 /*-------------------------------------------------------------------*/
@@ -1327,6 +1662,374 @@ RADR    px;                             /* prefix                    */
 int     rc;                             /* Return code               */
 
     RR_SVC(inst, regs, i);
+
+    /* i == 120 and 0xfffffffd is reserved for "addnum" in PDPCLIB */
+
+#if 1
+    /* if we have an SVC and R0 & R1 are set to a magic number, then
+       this is actually a request from EZASOKET. */
+    if ((i == 120) && (regs->GR_L(0) == 0xffffffe1)
+        && (regs->GR_L(1) == 0xffffffe1)
+       )
+    {
+        regs->GR_L(1) = regs->GR_L(2); /* normal parameter list */
+        ezahandler(regs);
+        return;
+    }
+#endif
+
+/* provide ability to intercept TPUT/TGET/GTSIZE macros */
+#if defined(FEATURE_S380) && defined( _MSVC_ )
+#ifdef TPUT_3270
+    if (i == 94 && sysblk.hdltput)
+    {
+        regs->GR_L(0) = 24;
+        regs->GR_L(1) = 80;
+        return;
+    }
+
+    /* This 3270 emulation was written by Paul Edwards and is
+       released to the public domain */
+    if (i == 93 && sysblk.hdltput)
+    {
+        BYTE *p;
+        int x;
+
+#if 0
+        logmsg("R0 is %08X, R1 is %08X\n", regs->GR_L(0), regs->GR_L(1));
+#endif
+        p = MADDR(regs->GR_L(1) & 0xffffff, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+        if ((regs->GR_L(1) & 0xff000000) != 0x03000000)
+        {
+            char kbbuf[10];
+            int kblen;
+
+            keybd_avail = 0;
+            while (!kbhit())
+            {
+                usleep(100000); /* sleep 0.1 seconds */
+            }
+            kbbuf[0] = getch();
+            kbbuf[kblen=1] = '\0';
+            /* translate_keystroke( kbbuf, &kblen ); */
+            keybd_avail = 1;
+#if 0
+            /* for some reason when F3 is pressed, we're
+               not getting an actual character returned */
+            logmsg("len is %d, char 0 is %x, char 1 is %x\n", kblen, kbbuf[0], kbbuf[1]);
+#endif
+            memcpy(p, "\xf3\x40\xd2", 3); /* return F3 hit */
+            regs->GR_L(15) = 0;
+            regs->GR_L(1) = 3;
+            
+        }
+        else
+        {
+            char buf[24*80+1];
+            int oldadd = 0;
+            int newadd;
+            int z = 0;
+            static unsigned char table[] = {
+            0x40, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 
+            0xC8, 0xC9, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+            0x50, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7,
+            0xD8, 0xD9, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F,
+            0x60, 0x61, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7,
+            0xE8, 0xE9, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,
+            0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+            0xF8, 0xF9, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F, 0x00 };
+
+#if 0
+            for (x = 0; x < (int)regs->GR_L(0); x++)
+            {
+                logmsg("char %d is %02X\n", x, p[x]);
+            }
+#endif
+            sl_etoa(buf, p, (int)regs->GR_L(0));
+            for (x = 0; x < (int)regs->GR_L(0); x++)
+            {
+                if (p[x] == 0x27) /* Escape */
+                {
+                    /* do nothing */
+                }
+                else if ((x < 2) && (p[x] == 0xf5)) /* erase write */
+                {
+                    x++; /* skip write control character */
+                }
+                else if (p[x] == 0x11) /* set buffer address */
+                {
+                    x += 2; /* skip positioning */
+                }
+                else if (p[x] == 0x1d) /* start field */
+                {
+                    x++; /* skip attribute byte */
+                    logmsg(" "); /* show a blank */
+                    oldadd++;
+                    z++;
+                    if (z == 80)
+                    {
+                        logmsg("\n");
+                        z = 0;
+                    }
+                }
+                else if (p[x] == 0x13) /* insert cursor */
+                {
+                    /* do nothing */
+                }
+                else if (p[x] == 0x3c) /* repeat to address */
+                {
+                    newadd = ((strchr(table, p[x + 1]) - table) << 6)
+                             | (strchr(table, p[x + 2]) - table);
+                    /* logmsg("\nnewadd is %d\n", newadd); */
+                    x += 2; /* skip positioning */
+                    x++; /* get to character to be repeated */
+                    while ((newadd - oldadd) >= 1)
+                    {
+                        if (buf[x] == '\0')
+                        {
+                            logmsg(" ");
+                        }
+                        else
+                        {
+                            logmsg("%c", buf[x]);
+                        }
+                        oldadd++;
+                        z++;
+                        if (z == 80)
+                        {
+                            logmsg("\n");
+                            z = 0;
+                        }
+                    }
+                }
+                else if ((buf[x] == '\0') || isprint((unsigned char)buf[x]))
+                {
+                    if (buf[x] == '\0')
+                    {
+                        logmsg(" ");
+                    }
+                    else
+                    {
+                        logmsg("%c", buf[x]);
+                    }
+                    oldadd++;
+                    z++;
+                    if (z == 80)
+                    {
+                        logmsg("\n");
+                        z = 0;
+                    }
+                }
+                else
+                {
+                    logmsg("\nunknown character %x\n", p[x]);
+                }
+            }
+            if (z != 0)
+            {
+                logmsg("\n");
+            }
+        }
+        return;
+    }
+
+#else /* not 3270 */
+    if (i == 93 && sysblk.hdltput)
+    {
+        BYTE *p;
+        int x;
+        int len;
+
+#if 0
+        logmsg("in tput/tget, R0 is %08X, R1 is %08X\n", regs->GR_L(0), regs->GR_L(1));
+#endif
+        if ((regs->GR_L(1) & 0xff000000) != 0x00000000)
+        {
+            p = MADDR(regs->GR_L(1) & 0xffffff, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+            len = (int)regs->GR_L(0);
+            if (!sysblk.G_tputlive)
+            {
+                /* do nothing for TGET */
+            }
+            else
+            {
+                /* logmsg("receiving from %d for length %d\n", sysblk.G_tput, len); */
+                len = recv(sysblk.G_tput, p, len, 0);
+                /* logmsg("len received is %d\n", len); */
+                if (len < 0) len = 0;
+                if (len == 0)
+                {
+                    usleep(500000);
+                }
+                /* handle ctrl-c sequence */
+                if ((len == 5) && (memcmp(p, "\xff\xf4\xff\xfd\x06", 5) == 0))
+                {
+                    send(sysblk.G_tput, "\xff\xfc\x06", 3, 0);
+                    len = 1;
+                    p[0] = 0x03; /* ctrl-C */
+                }
+                for (x = 0; x < len; x++)
+                {
+                    /* logmsg("received %d %x\n", x, p[x]); */
+                    p[x] = host_to_guest(p[x]);
+                    /* logmsg("converted to %x\n", p[x]); */
+                }
+                regs->GR_L(1) = len;
+                regs->GR_L(15) = 0;
+                return;
+            }
+        }
+        else
+        {
+            p = MADDR(regs->GR_L(1) & 0xffffff, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+            len = (int)regs->GR_L(0);
+            /* logmsg("G_tput is %d\n", sysblk.G_tput); */
+            if (sysblk.G_tput > 0)
+            {
+                char b[2000];
+                
+                if (p[0] == 0x27) sysblk.G_tputlive = 1;
+                if (sysblk.G_tputlive)
+                {
+                    for (x = 0; x < len; x++)
+                    {
+                        b[x] = guest_to_host(p[x]);
+                    }
+                    send(sysblk.G_tput, b, len, 0);
+                    return;
+                }
+            }
+#if 0
+            logmsg("G_tput is %d\n", sysblk.G_tput);
+#if 0
+            while (sysblk.G_tput != 0)
+            {
+                usleep(10000);
+            }
+#endif
+            for (x = 0; x < (int)regs->GR_L(0); x++)
+            {
+                logmsg("char %d is %02X\n", x, p[x]);
+            }
+            /* sysblk.G_tput = (int)regs->GR_L(0); */
+#endif
+        }
+    }
+#endif
+#endif
+
+#if defined(FEATURE_S380) && defined( _MSVC_ )
+    /* if we have an SVC 120 and R0 & R1 are set to a magic number, then
+       this is actually the image display API. */
+    if ((i == 120) && (regs->GR_L(0) == 0xffffffe3)
+        && (regs->GR_L(1) == 0xffffffe3)
+       )
+    {
+        U32 *parms;
+        BYTE *p;
+        U32 new;
+
+        regs->GR_L(1) = regs->GR_L(2); /* normal parameter list */
+        parms = (U32 *)MADDR (regs->GR_L(1), 0, regs, ACCTYPE_READ, regs->psw.pkey);
+        p = (BYTE *)&parms[0];
+        new = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
+        p = MADDR(new, 0, regs, ACCTYPE_READ, regs->psw.pkey);
+        DisplayImage((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3],
+                     (p[4] << 24) | (p[5] << 16) | (p[6] << 8) | p[7],
+                     (p[8] << 24) | (p[9] << 16) | (p[10] << 8) | p[11],
+                     (p[12] << 24) | (p[13] << 16) | (p[14] << 8) | p[15],
+                     p + 16);
+        return;
+    }
+
+    /* if we have an SVC 120 and R0 & R1 are set to a magic number, then
+       this is actually the joystick query API. */
+    if ((i == 120) && (regs->GR_L(0) == 0xffffffe5)
+        && (regs->GR_L(1) == 0xffffffe5)
+       )
+    {
+        regs->GR_L(1) = regs->GR_L(2); /* normal parameter list */
+        GetJoy(regs);
+        return;
+    }
+
+    /* if we have an SVC 120 and R0 & R1 are set to a magic number, then
+       this is actually the beep API. */
+    if ((i == 120) && (regs->GR_L(0) == 0xffffffe7)
+        && (regs->GR_L(1) == 0xffffffe7)
+       )
+    {
+        regs->GR_L(1) = regs->GR_L(2); /* normal parameter list */
+        Beep(750,300);
+        return;
+    }
+#endif
+
+#ifdef FEATURE_S380
+    /* If this is DOS/VS (ie VSE/380) then if we are in 31-bit
+       mode, we should handle the ATL memory request and free.
+       Due to the current technical limitation (only one request
+       can be made), we should only do the intercept if at least
+       16 MB was requested - after all, it was going to fail 
+       anyway otherwise. */
+    if (sysblk.vse_special && regs->psw.amode)
+    {
+        /* GETVIS */
+        if (i == 61)
+        {
+            /* if request is at least 16 MB */
+            if (regs->GR_L(0) >= 0x01000000)
+            {
+                regs->GR_L(1) = 0x04100000;
+                regs->GR_L(15) = 0;
+                regs->psw.cc = 0;
+                return;
+            }
+        }
+        /* FREEVIS */
+        else if (i == 62)
+        {
+            /* see if it is an ATL address */
+            if ((regs->GR_L(1) & 0x7f000000) != 0)
+            {
+                regs->GR_L(15) = 0;
+                regs->psw.cc = 0;
+                return;
+            }
+        }   
+    }
+
+    /* If user has requested special MVS intercepts, then we need
+       to obtain ATL storage when they do GETMAIN, and free it
+       with FREEMAIN. For now we have a simple one-request-at-a-time
+       method for handling that. We simply return a pointer to the
+       65 MB location on the assumption that they have allocated
+       sufficient memory prior. */
+    if (sysblk.mvs_special && (i == 120) && regs->psw.amode)
+    {
+        if (regs->GR_L(1) == 0) /* getmain */
+        {
+            if (regs->GR_L(0) >= 0x01000000)
+            {
+                regs->GR_L(1) = 0x04100000;
+                regs->GR_L(15) = 0;
+                regs->psw.cc = 0;
+                return;
+            }
+        }
+        else /* freemain */
+        {
+            /* see if it is an ATL address */
+            if ((regs->GR_L(1) & 0x7f000000) != 0)
+            {
+                regs->GR_L(15) = 0;
+                regs->psw.cc = 0;
+                return;
+            }
+        }   
+    }
+#endif
+
 #if defined(FEATURE_ECPSVM)
     if(ecpsvm_dosvc(regs,i)==0)
     {

@@ -698,6 +698,5 @@ DLL_EXPORT void hao_message(char *buf)
   }
   release_lock(&ao_lock);
 }
-
 #endif /* defined(OPTION_HAO) */
 

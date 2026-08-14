@@ -2668,7 +2668,13 @@ REGS *regs;
             return 0;
         }
 
-        if ( ARCH_900 == regs->arch_mode )
+        if (( ARCH_900 == regs->arch_mode ) ||
+#if defined(FEATURE_S380)
+            1
+#else
+            0
+#endif
+            )
             regs->GR_G(reg_num) = (U64) reg_value;
         else
             regs->GR_L(reg_num) = (U32) reg_value;
@@ -4419,7 +4425,13 @@ int ostailor_cmd(int argc, char *argv[], char *cmdline)
     }
     if (strcasecmp (argv[1], "OS/390") == 0)
     {
+#if defined(FEATURE_S380)
+        /* MVS users may wish to use Herc380 to handle ATL getmains */
+        sysblk.pgminttr = 0;
+        sysblk.mvs_special = 1;
+#else
         sysblk.pgminttr = OS_OS390;
+#endif
         return 0;
     }
     if (strcasecmp (argv[1], "+OS/390") == 0)
@@ -4449,7 +4461,13 @@ int ostailor_cmd(int argc, char *argv[], char *cmdline)
     }
     if (strcasecmp (argv[1], "VSE") == 0)
     {
+#if defined(FEATURE_S380)
+        /* DOS/VS requires special processing to avoid a loop at IPL time */
+        sysblk.pgminttr = 0;
+        sysblk.vse_special = 1;
+#else
         sysblk.pgminttr = OS_VSE;
+#endif
         return 0;
     }
     if (strcasecmp (argv[1], "+VSE") == 0)
@@ -6492,11 +6510,24 @@ int archmode_cmd(int argc, char *argv[], char *cmdline)
                       "architecture\n") );
             return -1;
         }
+#ifdef FEATURE_S380
+    if (!strcasecmp (argv[1], "S/380"))
+    {
+        sysblk.arch_mode = ARCH_370;
+        sysblk.maxcpu = sysblk.numcpu;
+        sysblk.s380 = 1;
+    }
+    else
+#endif
 #if defined(_370)
     if (!strcasecmp (argv[1], arch_name[ARCH_370]))
     {
         sysblk.arch_mode = ARCH_370;
         sysblk.maxcpu = sysblk.numcpu;
+#ifdef FEATURE_S380
+        /* force s370 to be s380 until Hercgui updated */
+        sysblk.s380 = 1;
+#endif
     }
     else
 #endif
@@ -7504,7 +7535,7 @@ char    pathname[MAX_PATH];             /* (work)                    */
 
         /* Remove any # comments on the line before processing */
 
-        if ((p = strchr(scrbuf,'#')) && p > scrbuf)
+        if ((p = strrchr(scrbuf,'#')) && p > scrbuf)
             do *p = 0; while (isspace(*--p) && p >= scrbuf);
 
         if (strncasecmp(scrbuf,"pause",5) == 0)

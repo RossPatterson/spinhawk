@@ -79,12 +79,21 @@ typedef struct  _PSW {
                                         /* or (esame)      (24 - 30) */
         u_int                           /* Addressing mode (31 - 32) */
                  amode64:1,             /* 64-bit addressing    (31) */
+                 amode32:1,             /* 32-bit addressing    (4)  */
                  amode:1,               /* 31-bit addressing    (32) */
                  zeroilc:1;             /* 1=Zero ILC                */
         U32      zeroword;              /* esame only      (33 - 63) */
         DW       ia;                    /* Instruction addrress      */
                                         /*                 (33 - 63) */
                                         /* or (esame)      (64 -127) */
+        U32      s380_bc;               /* last address that was     */
+                                        /* known to be AMODE 31      */
+        U32      s380_cr1;              /* control register 1 when   */
+                                        /* last in AMODE 31          */
+        BYTE     s380_am32;             /* whether we were really in */
+                                        /* AMODE 32                  */
+        BYTE     s380_am64;             /* whether we were really in */
+                                        /* AMODE 64                  */
         DW       amask;                 /* Address wraparound mask   */
         U16      intcode;               /* Interruption code         */
         BYTE     ilc;                   /* Instruction length count  */
@@ -101,6 +110,7 @@ typedef struct  _PSW {
 #define AMASK_H  amask.F.H.F
 #define AMASK24  0x00FFFFFF
 #define AMASK31  0x7FFFFFFF
+#define AMASK32  0xFFFFFFFF
 #define AMASK64  0xFFFFFFFFFFFFFFFFULL
 
 /* System mask                 (0 -  7) */
@@ -218,7 +228,12 @@ typedef struct _DAT {
 #define CR0_PAGE_SZ_2K  0x00400000      /* ...2K pages               */
 #define CR0_PAGE_SZ_4K  0x00800000      /* ...4K pages               */
 #define CR0_ED          0x00800000      /* Enhanced DAT enable  ESAME*/
+#ifdef FEATURE_S380
+#define CR0_SEG_SIZE    0x00180000      /* Segment size for S/370... */
+#else
 #define CR0_SEG_SIZE    0x00380000      /* Segment size for S/370... */
+#endif
+#define CR0_XA          0x00200000      /* XA DAT indicator          */
 #define CR0_SEG_SZ_64K  0x00000000      /* ...64K segments           */
 #define CR0_SEG_SZ_1M   0x00100000      /* ...1M segments            */
 #define CR0_ASN_LX_REUS 0x00080000      /* ASN-and-LX-reuse control  */
@@ -723,7 +738,11 @@ typedef struct _PSA_3XX {               /* Prefixed storage area     */
 /*110*/ DBLWRD resv110;                 /* Reserved                  */
 /*118*/ DBLWRD resv118;                 /* Reserved                  */
 /*120*/ FWORD  storear[16];             /* Access register save area */
+#ifdef FEATURE_S380
+/*xxx*/ FWORD  storefpr[32];            /* FP register save area     */
+#else
 /*160*/ FWORD  storefpr[8];             /* FP register save area     */
+#endif
 /*180*/ FWORD  storegpr[16];            /* General register save area*/
 /*1C0*/ FWORD  storecr[16];             /* Control register save area*/
 } PSA_3XX;

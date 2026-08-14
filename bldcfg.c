@@ -202,6 +202,15 @@ int off;
         delayed_exit(1);
     }
 
+#if defined(FEATURE_S380) && VSE_UNPATCHED
+    /* force DOS/VS down to 15 MB to avoid a loop */
+    if (sysblk.vse_special && mainsize > 15)
+    {
+        sysblk.vse_real = sysblk.mainsize;
+        sysblk.mainsize = 15 * 1024 * 1024ULL;
+    }
+#endif
+
     /* Initial power-on reset for main storage */
     storage_clear();
 
@@ -674,6 +683,10 @@ char   *smodel;                         /* -> CPU model string       */
 char   *sversion;                       /* -> CPU version string     */
 char   *smainsize;                      /* -> Main size string       */
 char   *sxpndsize;                      /* -> Expanded size string   */
+char   *sam24mode;                      /* -> AM24 mode string       */
+char   *sam31mode;                      /* -> AM31 mode string       */
+char   *sam64mode;                      /* -> AM64 mode string       */
+char   *shdltput;                       /* -> Handle TPUT string     */
 char   *smaxcpu;                        /* -> Maximum number of CPUs */
 char   *snumcpu;                        /* -> Number of CPUs         */
 char   *snumvec;                        /* -> Number of VFs          */
@@ -700,6 +713,10 @@ U32     serial;                         /* CPU serial number         */
 U16     model;                          /* CPU model number          */
 unsigned mainsize;                      /* Main storage size (MB)    */
 unsigned xpndsize;                      /* Expanded storage size (MB)*/
+unsigned am24mode;                      /* AM24 mode                 */
+unsigned am31mode;                      /* AM31 mode                 */
+unsigned am64mode;                      /* AM64 mode                 */
+int     hdltput;                        /* Handle TPUT               */
 U16     maxcpu;                         /* Maximum number of CPUs    */
 U16     numcpu;                         /* Number of CPUs            */
 U16     numvec;                         /* Number of VFs             */
@@ -763,6 +780,10 @@ char    pathname[MAX_PATH];             /* file path in host format  */
     model = 0x0586;
     mainsize = 2;
     xpndsize = 0;
+    am24mode = 24;
+    am31mode = 31;
+    am64mode = 64;
+    hdltput = 0;
     maxcpu = 0;
     numcpu = 0;
     numvec = MAX_CPU_ENGINES;
@@ -977,6 +998,10 @@ char    pathname[MAX_PATH];             /* file path in host format  */
         sversion = NULL;
         smainsize = NULL;
         sxpndsize = NULL;
+        sam24mode = NULL;
+        sam31mode = NULL;
+        sam64mode = NULL;
+        shdltput = NULL;
         smaxcpu = NULL;
         snumcpu = NULL;
         snumvec = NULL;
@@ -1028,6 +1053,22 @@ char    pathname[MAX_PATH];             /* file path in host format  */
             else if (strcasecmp (keyword, "xpndsize") == 0)
             {
                 sxpndsize = operand;
+            }
+            else if (strcasecmp (keyword, "am24mode") == 0)
+            {
+                sam24mode = operand;
+            }
+            else if (strcasecmp (keyword, "am31mode") == 0)
+            {
+                sam31mode = operand;
+            }
+            else if (strcasecmp (keyword, "am64mode") == 0)
+            {
+                sam64mode = operand;
+            }
+            else if (strcasecmp (keyword, "hdltput") == 0)
+            {
+                shdltput = operand;
             }
             else if (strcasecmp (keyword, "cnslport") == 0)
             {
@@ -1213,6 +1254,73 @@ char    pathname[MAX_PATH];             /* file path in host format  */
                 delayed_exit(1);
             }
         }
+
+        /* Parse am24mode operand */
+        if (sam24mode != NULL)
+        {
+            if (sscanf(sam24mode, "%u%c", &am24mode, &c) != 1
+                || ((am24mode != 32) && (am24mode != 64)
+                    && (am24mode != 24) && (am24mode != 31)
+                   )
+               )
+            {
+                logmsg(_("HHCCF Error in %s line %d: "
+                        "Invalid am24 mode %s\n"),
+                        fname, inc_stmtnum[inc_level], sam24mode);
+                delayed_exit(1);
+            }
+        }
+        sysblk.am24mode = am24mode;
+
+        /* Parse am31mode operand */
+        if (sam31mode != NULL)
+        {
+            if (sscanf(sam31mode, "%u%c", &am31mode, &c) != 1
+                || ((am31mode != 32) && (am31mode != 64)
+                    && (am31mode != 24) && (am31mode != 31)
+                   )
+               )
+            {
+                logmsg(_("HHCCF Error in %s line %d: "
+                        "Invalid am31 mode %s\n"),
+                        fname, inc_stmtnum[inc_level], sam31mode);
+                delayed_exit(1);
+            }
+        }
+        sysblk.am31mode = am31mode;
+
+        /* Parse am64mode operand */
+        if (sam64mode != NULL)
+        {
+            if (sscanf(sam64mode, "%u%c", &am64mode, &c) != 1
+                || ((am64mode != 32) && (am64mode != 64)
+                    && (am64mode != 24) && (am64mode != 31)
+                   )
+               )
+            {
+                logmsg(_("HHCCF Error in %s line %d: "
+                        "Invalid am64 mode %s\n"),
+                        fname, inc_stmtnum[inc_level], sam64mode);
+                delayed_exit(1);
+            }
+        }
+        sysblk.am64mode = am64mode;
+
+        /* Parse hdltput operand */
+        if (shdltput != NULL)
+        {
+            if (strcmp(shdltput, "YES") != 0)
+            {
+                logmsg(_("HHCCF Error in %s line %d: "
+                        "Invalid hdltput option %s\n"),
+                        fname, inc_stmtnum[inc_level], shdltput);
+                delayed_exit(1);
+            }
+            hdltput = 1;
+        }
+        sysblk.hdltput = hdltput;
+        sysblk.G_tput = 0;
+        sysblk.G_tputlive = 0;
 
         /* Parse Hercules priority operand */
         if (shercprio != NULL)

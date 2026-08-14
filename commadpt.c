@@ -1085,7 +1085,12 @@ int     rc;
             /* --> Yes, it is! I propose to fully remove the if/else construct     */
             /*                 i.e. to handle BSC and async identically here (JW)  */
 #ifdef _MSVC_
-            rc=recv(ca->sfd,bfr,256,0);
+            if (!sysblk.G_tputlive) rc=recv(ca->sfd,bfr,256,0);
+            else
+            {
+                usleep(100000);
+                continue;
+            }
 #else
             rc=read(ca->sfd,bfr,256);
 #endif
@@ -1326,6 +1331,8 @@ static void *commadpt_thread(void *vca)
                     commadpt_pendccw_text[ca->curpending]);
         }
         writecont=0;
+        sysblk.G_tput = ca->sfd;
+
         switch(ca->curpending)
         {
             case COMMADPT_PEND_SHUTDOWN:
@@ -2640,6 +2647,10 @@ BYTE    b1, b2;                 /* 2741 overstrike rewriting */
             dev->commadpt->curpending=COMMADPT_PEND_ENABLE;
             commadpt_wakeup(dev->commadpt,0);
             commadpt_wait(dev);
+            /* Is the device still there? If not, for example when
+               Hercules is shutting down, continuing here will cause a segfault */
+            if (!dev) break;
+            if (!dev->commadpt) break;
             /* If the line is not connected now, then ENABLE failed */
             if(dev->commadpt->connect)
             {
@@ -3488,7 +3499,11 @@ BYTE    b1, b2;                 /* 2741 overstrike rewriting */
             break;
 
     }
-    release_lock(&dev->commadpt->lock);
+    /* Is the device still there? If not, for example when
+       Hercules is shutting down, releasing the lock may cause a segfault */
+    if (dev)
+        if (dev->commadpt)
+            release_lock(&dev->commadpt->lock);
 }
 
 

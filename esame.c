@@ -40,6 +40,11 @@ BYTE * get_stfl_data(int, int *);
 #include "clock.h"
 
 
+#if defined(FEATURE_S380)
+#define FEATURE_ESAME
+#endif
+
+
 #if defined(FEATURE_BINARY_FLOATING_POINT)
 /*-------------------------------------------------------------------*/
 /* B29C STFPC - Store FPC                                        [S] */

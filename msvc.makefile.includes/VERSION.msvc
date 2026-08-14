@@ -69,6 +69,8 @@ VERSION = $(VERSION)-$(V3)
 VERSION = $(HERCVER)
 !ENDIF
 
+VERSION = 3.07:380-5.0
+
 !MESSAGE Hercules version number is $(VERSION) ($(V1).$(V2).$(V3).$(V4))
 VERSION = \"$(VERSION)\"
 

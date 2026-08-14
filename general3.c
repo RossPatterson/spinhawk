@@ -22,6 +22,11 @@
 #include "inline.h"
 
 
+#if defined(FEATURE_S380)
+#define FEATURE_ESAME
+#endif
+
+
 #if defined(FEATURE_GENERAL_INSTRUCTIONS_EXTENSION_FACILITY)
 
 #if defined(FEATURE_INTERLOCKED_ACCESS_FACILITY)                /*810*/

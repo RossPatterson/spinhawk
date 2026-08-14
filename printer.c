@@ -927,7 +927,7 @@ static void printer_execute_ccw (DEVBLK *dev, BYTE code, BYTE flags,
 int             rc = 0;                 /* Return code               */
 int             i;                      /* Loop counter              */
 int             num;                    /* Number of bytes to move   */
-char           *eor;                    /* -> end of record string   */
+char           *eor = "";               /* -> end of record string   */
 char           *nls = "\n\n\n";         /* -> new lines              */
 BYTE            c;                      /* Print character           */
 char            hex[3];                 /* for hex conversion        */
@@ -963,93 +963,34 @@ char            wbuf[150];
 
     switch (code) {
 
-    case 0x01: /* Write     No Space             */
-    case 0x09: /* Write and Space 1 Line         */
-    case 0x11: /* Write and Space 2 Lines        */
-    case 0x19: /* Write and Space 3 Lines        */
+    case 0x01:
+    /*---------------------------------------------------------------*/
+    /* WRITE WITHOUT SPACING                                         */
+    /*---------------------------------------------------------------*/
+        eor = ""; /* nothing needed when writing to a file */
+        goto write;
 
 
-    case 0x89: /* Write and Skip to Channel 1    */
-    case 0x91: /* Write and Skip to Channel 2    */
-    case 0x99: /* Write and Skip to Channel 3    */
-    case 0xA1: /* Write and Skip to Channel 4    */
-    case 0xA9: /* Write and Skip to Channel 5    */
-    case 0xB1: /* Write and Skip to Channel 6    */
-    case 0xB9: /* Write and Skip to Channel 7    */
-    case 0xC1: /* Write and Skip to Channel 8    */
-    case 0xC9: /* Write and Skip to Channel 9    */
-    case 0xD1: /* Write and Skip to Channel 10   */
-    case 0xD9: /* Write and Skip to Channel 11   */
-    case 0xE1: /* Write and Skip to Channel 12   */
-        if (dev->rawcc)
-        {
-            sprintf(hex,"%02x",code);
-            write_buffer(dev, hex, 2, unitstat);
-            if (*unitstat != 0) return;
-            WRITE_LINE();
-            write_buffer(dev, "\n", 1, unitstat);
-            if (*unitstat == 0)
-                *unitstat = CSW_CE | CSW_DE;
-            return;
-        }
+    case 0x11:
+    /*---------------------------------------------------------------*/
+    /* WRITE AND SPACE 2 LINES                                       */
+    /*---------------------------------------------------------------*/
+        eor = dev->crlf ? "\r\n\r\n" : "\n\n";
+        goto write;
 
-        if ( dev->browse && dev->ccpend && ((chained & CCW_FLAGS_CD) == 0) )
-        {
-            dev->ccpend = 0;
-            /* dev->currline++; */
-            write_buffer(dev, "\n", 1, unitstat);
-            if (*unitstat != 0) return;
-        }
-        WRITE_LINE();
-        if ((flags & CCW_FLAGS_CD) == 0)
-        {
-            if    ( code <= 0x80 ) /* line control */  
-            {
-                coun = code / 8;   
-                if  ( coun == 0 ) 
-                {
-                    dev->chskip = 1;
-                    if ( dev->browse )   
-                    {
-                        dev->ccpend = 1;
-                        *unitstat = 0;
-                    }
-                    else
-                        write_buffer(dev, "\r", 1, unitstat);
-                    if (*unitstat == 0)  
-                        *unitstat = CSW_CE | CSW_DE;
-                    return;         
-                }
+    case 0x19:
+    /*---------------------------------------------------------------*/
+    /* WRITE AND SPACE 3 LINES                                       */
+    /*---------------------------------------------------------------*/
+        eor = dev->crlf ? "\r\n\r\n\r\n" : "\n\n\n";
+        goto write;
 
-                dev->ccpend = 0;
-                dev->currline += coun;
-                write_buffer(dev, nls, coun, unitstat);
-                if (*unitstat == 0)  
-                    *unitstat = CSW_CE | CSW_DE;
-                return;
-            }
-            else  /*code >  0x80*/ /* chan control */         
-            {   
-                /*
-                if ( dev->browse )
-                {
-                    dev->currline++;
-                    write_buffer(dev, "\n", 1, unitstat);
-                    if (*unitstat != 0) return;
-                }
-                */
-                chan = ( code - 128 ) / 8;
-                if ( chan == 1 ) 
-                {
-                    write_buffer(dev, "\r", 1, unitstat);
-                    if (*unitstat != 0)  
-                        return;
-                }
-                SKIP_TO_CHAN();
-                if (*unitstat == 0)  
-                    *unitstat = CSW_CE | CSW_DE;
-                return;
-            }
+    case 0x89:
+    /*---------------------------------------------------------------*/
+    /* WRITE AND SKIP TO CHANNEL 1                                   */
+    /*---------------------------------------------------------------*/
+        eor = dev->crlf ? "\r\n\f" : "\f";
+        goto write;
 
         }
         *unitstat = CSW_CE | CSW_DE;
@@ -1270,6 +1211,48 @@ char            wbuf[150];
         *unitstat = CSW_CE | CSW_DE;
         break;
 
+    case 0x0B:
+    /*---------------------------------------------------------------*/
+    /* SPACE 1 LINE IMMEDIATE                                        */
+    /*---------------------------------------------------------------*/
+        eor = dev->crlf ? "\r\n" : "\n";
+        write_buffer (dev, eor, strlen(eor), unitstat);
+        if (*unitstat != 0) break;
+
+    /*
+        *residual = 0;
+    */
+        *unitstat = CSW_CE | CSW_DE;
+        break;
+
+    case 0x13:
+    /*---------------------------------------------------------------*/
+    /* SPACE 2 LINES IMMEDIATE                                       */
+    /*---------------------------------------------------------------*/
+        eor = dev->crlf ? "\r\n\r\n" : "\n\n";
+        write_buffer (dev, eor, strlen(eor), unitstat);
+        if (*unitstat != 0) break;
+
+    /*
+        *residual = 0;
+    */
+        *unitstat = CSW_CE | CSW_DE;
+        break;
+
+    case 0x1B:
+    /*---------------------------------------------------------------*/
+    /* SPACE 3 LINES IMMEDIATE                                       */
+    /*---------------------------------------------------------------*/
+        eor = dev->crlf ? "\r\n\r\n\r\n" : "\n\n\n";
+        write_buffer (dev, eor, strlen(eor), unitstat);
+        if (*unitstat != 0) break;
+
+    /*
+        *residual = 0;
+    */
+        *unitstat = CSW_CE | CSW_DE;
+        break;
+
     case 0x23:
     /*---------------------------------------------------------------*/
     /* UNFOLD                                                        */
@@ -1303,6 +1286,57 @@ char            wbuf[150];
     /*
         *residual = 0;
     */
+        *unitstat = CSW_CE | CSW_DE;
+        break;
+
+    case 0x8B:
+    /*---------------------------------------------------------------*/
+    /* SKIP TO CHANNEL 1 IMMEDIATE                                   */
+    /*---------------------------------------------------------------*/
+        eor = dev->crlf ? "\r\n\f" : "\f";
+        write_buffer (dev, eor, strlen(eor), unitstat);
+        if (*unitstat != 0) break;
+
+    /*
+        *residual = 0;
+    */
+        *unitstat = CSW_CE | CSW_DE;
+        break;
+
+    case 0xCB:
+    /*---------------------------------------------------------------*/
+    /* SKIP TO CHANNEL 9 IMMEDIATE                                   */
+    /*---------------------------------------------------------------*/
+        eor = dev->crlf ? "\r\n" : "\n";
+        write_buffer (dev, eor, strlen(eor), unitstat);
+        if (*unitstat != 0) break;
+
+    /*
+        *residual = 0;
+    */
+        *unitstat = CSW_CE | CSW_DE;
+        break;
+
+    case 0xE3: case 0xDB: case 0xA3: case 0xBB: case 0x9B: case 0xD9:
+    /*---------------------------------------------------------------*/
+    /* SKIP TO various channel numbers                               */
+    /*---------------------------------------------------------------*/
+        eor = dev->crlf ? "\r\n" : "\n";
+        write_buffer (dev, eor, strlen(eor), unitstat);
+        if (*unitstat != 0) break;
+
+    /*
+        *residual = 0;
+    */
+        *unitstat = CSW_CE | CSW_DE;
+        break;
+
+    case 0x63:
+    /*---------------------------------------------------------------*/
+    /* LOAD FORMS CONTROL BUFFER                                     */
+    /*---------------------------------------------------------------*/
+        /* Return normal status */
+        *residual = 0;
         *unitstat = CSW_CE | CSW_DE;
         break;
 

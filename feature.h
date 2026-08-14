@@ -115,19 +115,38 @@ void (ATTR_REGPARM(2) s370_ ## _name) (BYTE inst[], REGS *regs)
 #define ARCH_DEP(_name) \
 s370_ ## _name
 
+#if !defined(FEATURE_S380)
 #define APPLY_PREFIXING(addr,pfx) \
     ( ((U32)(addr) & 0x7FFFF000) == 0 || ((U32)(addr) & 0x7FFFF000) == (pfx) \
       ? (U32)(addr) ^ (pfx) \
       : (addr) \
     )
+#else
+#define APPLY_PREFIXING(addr,pfx) \
+    ( ((U64)(addr) & 0xFFFFFFFFFFFFF000ULL) == 0 || ((U64)(addr) & 0xFFFFFFFFFFFFF000ULL) == (pfx) \
+      ? (U64)(addr) ^ (pfx) \
+      : (addr) \
+    )
+#endif
 
+#ifdef FEATURE_S380
+#define AMASK   AMASK_G
+#else
 #define AMASK   AMASK_L
+#endif
 
+#ifdef FEATURE_S380
+#define ADDRESS_MAXWRAP(_register_context) \
+    ((_register_context)->psw.AMASK)
+#define ADDRESS_MAXWRAP_E(_register_context) \
+    ((_register_context)->psw.AMASK)
+#else
 #define ADDRESS_MAXWRAP(_register_context) \
     (AMASK24)
-
 #define ADDRESS_MAXWRAP_E(_register_context) \
     (AMASK31)
+#endif
+
 
 #define REAL_MODE(p) \
     (!ECMODE(p) || ((p)->sysmask & PSW_DATMODE)==0)
@@ -157,12 +176,37 @@ s370_ ## _name
 
 #define PSA PSA_3XX
 #define PSA_SIZE 4096
+
+
+
+#if defined(FEATURE_S380)
+#define IA  IA_G
+#define PX  PX_L
+#define CR(_r)  CR_G(_r)
+#define GR(_r)  GR_G(_r)
+#define GR_A(_r, _regs) ((_regs)->psw.amode64 ? (_regs)->GR_G((_r)) : (_regs)->GR_L((_r)))
+#define SET_GR_A(_r, _regs,_v)  \
+    do  { \
+        if((_regs)->psw.amode64) { \
+            ((_regs)->GR_G((_r))=(_v)); \
+        } else { \
+            ((_regs)->GR_L((_r))=(_v)); \
+        } \
+    } while(0)
+
+#else
+
 #define IA  IA_L
 #define PX  PX_L
 #define CR(_r)  CR_L(_r)
 #define GR(_r)  GR_L(_r)
 #define GR_A(_r, _regs) ((_regs)->GR_L((_r)))
 #define SET_GR_A(_r, _regs,_v) ((_regs)->GR_L((_r))=(_v))
+
+#endif
+
+
+
 #define MONCODE MC_L
 #define TEA EA_L
 #define DXC     tea
@@ -170,15 +214,45 @@ s370_ ## _name
 #define PX_MASK 0x7FFFF000
 #define RSTOLD  iplccw1
 #define RSTNEW  iplpsw
-#if !defined(_FEATURE_ZSIE)
+#if !defined(_FEATURE_ZSIE) && !defined(FEATURE_S380)
 #define RADR    U32
 #define F_RADR  "%8.8"I32_FMT"X"
 #else
 #define RADR    U64
 #define F_RADR  "%8.8"I64_FMT"X"
 #endif
+
+
+
+#if defined(FEATURE_S380)
+
+#define VADR    U64
+#if SIZEOF_INT == 4
+#define VADR_L  U32
+#else
+#define VADR_L  VADR
+#endif
+
+#else
+
 #define VADR    U32
 #define VADR_L  VADR
+
+#endif
+
+
+#if defined(FEATURE_S380)
+#define F_VADR  "%16.16"I64_FMT"X"
+#define GREG    U64
+#define F_GREG  "%16.16"I64_FMT"X"
+#define CREG    U64
+#define F_CREG  "%16.16"I64_FMT"X"
+#define AREG    U32
+#define F_AREG  "%8.8"I32_FMT"X"
+#define STORE_W STORE_DW
+#define FETCH_W FETCH_DW
+
+#else
 #define F_VADR  "%8.8"I32_FMT"X"
 #define GREG    U32
 #define F_GREG  "%8.8"I32_FMT"X"
@@ -188,6 +262,8 @@ s370_ ## _name
 #define F_AREG  "%8.8"I32_FMT"X"
 #define STORE_W STORE_FW
 #define FETCH_W FETCH_FW
+#endif
+
 #define AIV     AIV_L
 #define AIE     AIE_L
 #define SIEBK                   SIE1BK
@@ -202,6 +278,10 @@ s370_ ## _name
 #define TLBID_PAGEMASK  0x00E00000
 #define TLBID_BYTEMASK  0x001FFFFF
 #define ASD_PRIVATE   SEGTAB_370_CMN
+
+#define CR12_BRTRACE    S_CR12_BRTRACE
+#define CR12_TRACEEA    S_CR12_TRACEEA
+#define CHM_GPR2_RESV   S_CHM_GPR2_RESV
 
 #elif __GEN_ARCH == 390
 
@@ -762,7 +842,7 @@ do { \
  /*
   * Accelerated lookup
   */
-#define MADDRL(_addr, _len, _arn, _regs, _acctype, _akey) \
+#define MADDR_STD(_addr, _arn, _regs, _acctype, _akey) \
  ( \
        likely((_regs)->aea_ar[(_arn)]) \
    &&  likely( \
@@ -783,9 +863,47 @@ do { \
      ) \
  )
 
-/* Old style accelerated lookup (without length) */
-#define MADDR(_addr, _arn, _regs, _acctype, _akey) \
-    MADDRL( (_addr), 1, (_arn), (_regs), (_acctype), (_akey))
+
+#ifdef FEATURE_S380
+
+#if VSE_UNPATCHED
+#define VSE_SPECIAL(_addr) \
+    (sysblk.vse_special && (((_addr) & 0x7fffffff) < sysblk.vse_real))
+#else
+#define VSE_SPECIAL(_addr) 0
+#endif
+
+#define MADDR_S380(_addr, _arn, _regs, _acctype, _akey) \
+(   ((_regs)->psw.amode && sysblk.s380 \
+      && (((_addr) & 0xffffffffff000000ULL) != 0)) \
+    ? \
+ ( ((_regs)->CR(13) == 0) ? \
+ ( \
+    ( \
+      (((_addr) & 0xffffffffffffffffULL) < sysblk.mainsize || VSE_SPECIAL(_addr)) ? \
+           ((_regs)->dat.storkey = &STORAGE_KEY((_addr) & 0xffffffffffffffffULL, \
+                                                (_regs)), \
+            (_regs)->mainstor + ((_addr) & 0xffffffffffffffffULL)) : \
+           ( \
+            (_regs)->program_interrupt ((_regs), \
+                                        PGM_PROTECTION_EXCEPTION), \
+            (BYTE *)0) \
+    ) \
+ ) : /* if CR13 is set, split DAT is being used, so don't use the TLB */ \
+     ARCH_DEP(logical_to_main) ((_addr), (_arn), (_regs), \
+              ((_acctype) | ACC_NOTLB), (_akey)) \
+ ) \
+    : \
+    MADDR_STD(_addr, _arn, _regs, _acctype, _akey) \
+)
+
+#endif
+
+#if defined(FEATURE_S380)
+#define MADDR MADDR_S380
+#else
+#define MADDR MADDR_STD
+#endif
 
 /*
  * PER Successful Branch

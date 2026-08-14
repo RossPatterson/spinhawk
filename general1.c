@@ -45,6 +45,11 @@
 #include "clock.h"
 
 
+#if defined(FEATURE_S380)
+#define FEATURE_ESAME
+#endif
+
+
 /*-------------------------------------------------------------------*/
 /* 1A   AR    - Add Register                                    [RR] */
 /*-------------------------------------------------------------------*/
@@ -409,6 +414,11 @@ VADR    newia;                          /* New instruction address   */
         regs->GR_G(r1) = PSW_IA64(regs, 2);
     else
 #endif
+#if defined(FEATURE_S380)
+    if (regs->psw.amode32 )
+        regs->GR_L(r1) = PSW_IA31(regs, 2);
+    else
+#endif
     regs->GR_L(r1) =
         ( regs->psw.amode )
         ? (0x80000000                 | PSW_IA31(regs, 2))
@@ -440,6 +450,11 @@ VADR    effective_addr2;                /* Effective address         */
 #if defined(FEATURE_ESAME)
     if( regs->psw.amode64 )
         regs->GR_G(r1) = PSW_IA64(regs, 4);
+    else
+#endif
+#if defined(FEATURE_S380)
+    if( regs->psw.amode32 )
+        regs->GR_L(r1) = PSW_IA31(regs, 4);
     else
 #endif
     regs->GR_L(r1) =
@@ -482,6 +497,11 @@ VADR    newia;                          /* New instruction address   */
         regs->GR_G(r1) = PSW_IA64(regs, 2);
     else
 #endif
+#if defined(FEATURE_S380)
+    if ( regs->psw.amode32 )
+        regs->GR_L(r1) = PSW_IA31(regs, 2);
+    else
+#endif
     if ( regs->psw.amode )
         regs->GR_L(r1) = 0x80000000 | PSW_IA31(regs, 2);
     else
@@ -513,6 +533,11 @@ VADR    effective_addr2;                /* Effective address         */
         regs->GR_G(r1) = PSW_IA64(regs, 4);
     else
 #endif
+#if defined(FEATURE_S380)
+    if ( regs->psw.amode32 )
+        regs->GR_L(r1) = PSW_IA31(regs, 4);
+    else
+#endif
     if ( regs->psw.amode )
         regs->GR_L(r1) = 0x80000000 | PSW_IA31(regs, 4);
     else
@@ -531,7 +556,9 @@ DEF_INST(branch_and_save_and_set_mode)
 {
 int     r1, r2;                         /* Values of R fields        */
 VADR    newia;                          /* New instruction address   */
+#if defined(FEATURE_TRACING)
 int     xmode;                          /* 64 or 31 mode of target   */
+#endif
 #if defined(FEATURE_ESAME)
 BYTE    *ipsav;                         /* save for ip               */
 #endif /*defined(FEATURE_ESAME)*/
@@ -583,7 +610,14 @@ BYTE    *ipsav;                         /* save for ip               */
         regs->GR_L(r1) = PSW_IA24(regs, 2);
 
     /* Set mode and branch to address specified by R2 operand */
-    if ( r2 != 0 )
+    if ( r2 != 0
+#if defined(FEATURE_S380)
+/* if a S/370 machine, don't allow them to change addressing
+   modes, because that has implications for the memory access
+   routines */
+         && (sysblk.s380 || (regs->arch_mode != ARCH_370))
+#endif
+       )
     {
         SET_ADDRESSING_MODE(regs, newia);
         SUCCESSFUL_BRANCH(regs, newia, 2);
@@ -626,8 +660,18 @@ VADR    newia;                          /* New instruction address   */
     {
 #if defined(FEATURE_ESAME)
         /* Z/Pops seems to be in error about this */
+        /* Specifically SA22-7832-00 says the low bit is cleared, while
+           SA22-7832-03 says the low bit is unchanged. So Hercules is
+           correct to leave this line commented out, and it makes sense
+           as this matches behavior in ESA/390 where the low bit is
+           not special. */
 //      regs->GR_LHLCL(r1) &= 0xFE;
         if ( regs->psw.amode64 )
+            regs->GR_LHLCL(r1) |= 0x01;
+        else
+#endif
+#if defined(FEATURE_S380)
+        if ( regs->psw.amode32 && (sysblk.am64mode == 32) )
             regs->GR_LHLCL(r1) |= 0x01;
         else
 #endif
@@ -640,7 +684,14 @@ VADR    newia;                          /* New instruction address   */
     }
 
     /* Set mode and branch to address specified by R2 operand */
-    if ( r2 != 0 )
+    if ( r2 != 0
+#if defined(FEATURE_S380)
+/* if a S/370 machine, don't allow them to change addressing
+   modes, because that has implications for the memory access
+   routines */
+         && (sysblk.s380 || (regs->arch_mode != ARCH_370))
+#endif
+       )
     {
         SET_ADDRESSING_MODE(regs, newia);
         SUCCESSFUL_BRANCH(regs, newia, 2);

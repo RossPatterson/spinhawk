@@ -22,6 +22,10 @@
 #if !defined(_HSCMISC_C)
 #define _HSCMISC_C
 
+#if defined(FEATURE_S380)
+#define FEATURE_ESAME
+#endif
+
 /*-------------------------------------------------------------------*/
 /*                System Shutdown Processing                         */
 /*-------------------------------------------------------------------*/
@@ -252,7 +256,7 @@ static void display_regs32(char *hdr,U16 cpuad,U32 *r,int numcpus)
     logmsg("\n");
 }
 
-#if defined(_900)
+#if defined(_900) || defined(FEATURE_S380)
 
 static void display_regs64(char *hdr,U16 cpuad,U64 *r,int numcpus)
 {
@@ -342,12 +346,18 @@ void display_regs (REGS *regs)
 {
     int i;
     U32 gprs[16];
-#if defined(_900)
+#if defined(_900) || defined(FEATURE_S380)
     U64 ggprs[16];
 #endif
 
-#if defined(_900)
-    if(regs->arch_mode != ARCH_900)
+#if defined(_900) || defined(FEATURE_S380)
+    if ((regs->arch_mode != ARCH_900) &&
+#if defined(FEATURE_S380)
+    0
+#else
+    1
+#endif
+    )
     {
 #endif
         for(i=0;i<16;i++)
@@ -355,7 +365,7 @@ void display_regs (REGS *regs)
             gprs[i]=regs->GR_L(i);
         }
         display_regs32("GR",regs->cpuad,gprs,sysblk.cpus);
-#if defined(_900)
+#if defined(_900) || defined(FEATURE_S380)
     }
     else
     {
@@ -1220,7 +1230,15 @@ REGS   *regs;                           /* Copied regs               */
         else
         addr2 = regs->GR(b2) & ADDRESS_MAXWRAP(regs);
     }
-
+#if 0
+    /* we can use this to track a particular bit of storage */
+    {
+        addr2 = 0xcc258;
+        n = ARCH_DEP(display_virt) (regs, addr2, buf, 0,
+                                            ACCTYPE_READ);
+        logmsg ("%s\n", buf);
+    }
+#endif
     /* Calculate the operand address for RIL_A instructions */
     if ((opcode == 0xC0 &&
             ((inst[1] & 0x0F) == 0x00

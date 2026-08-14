@@ -84,6 +84,9 @@
         (void*)& _mnemonic "\0" #_name \
     }
 
+#ifdef FEATURE_S380
+#define GENx___x___x900 GENx37Xx___x900 
+#else
 #define GENx___x___x900(_name,_format,_mnemonic) \
     { \
     _GEN370(operation_exception) \
@@ -92,6 +95,7 @@
         (void*)&disasm_ ## _format, \
         (void*)& _mnemonic "\0" #_name \
     }
+#endif
 
 #define GENx370x___x900(_name,_format,_mnemonic) \
     { \
@@ -102,6 +106,9 @@
         (void*)& _mnemonic "\0" #_name \
     }
 
+#ifdef FEATURE_S380
+#define GENx___x390x900 GENx37Xx390x900 
+#else
 #define GENx___x390x900(_name,_format,_mnemonic) \
     { \
     _GEN370(operation_exception) \
@@ -110,6 +117,7 @@
         (void*)&disasm_ ## _format, \
         (void*)& _mnemonic "\0" #_name \
     }
+#endif
 
 #define GENx370x390x900(_name,_format,_mnemonic) \
     { \
@@ -673,20 +681,79 @@ do { \
 /* Set addressing mode (BASSM, BSM) */
 
 #undef SET_ADDRESSING_MODE
-#if defined(FEATURE_ESAME)
+#if defined(FEATURE_ESAME) || defined(FEATURE_S380)
  #define SET_ADDRESSING_MODE(_regs, _addr) \
  do { \
   if ((_addr) & 1) { \
     (_regs)->psw.amode64 = regs->psw.amode = 1; \
+    (_regs)->psw.amode32 = 0; \
     (_regs)->psw.AMASK = AMASK64; \
     (_addr) ^= 1; \
+    if (sysblk.am64mode == 32) \
+    { \
+      (_regs)->psw.amode32 = 1; \
+      (_regs)->psw.amode64 = 0; \
+      (_regs)->psw.AMASK = AMASK32; \
+    } \
+    else if (sysblk.am64mode == 31) \
+    { \
+      (_regs)->psw.amode64 = 0; \
+      (_regs)->psw.AMASK = AMASK31; \
+    } \
+    else if (sysblk.am64mode == 24) \
+    { \
+      (_regs)->psw.amode64 = 0; \
+      (_regs)->psw.amode = 0; \
+      (_regs)->psw.AMASK = AMASK24; \
+    } \
   } else if ((_addr) & 0x80000000) { \
     (_regs)->psw.amode64 = 0; \
+    (_regs)->psw.amode32 = 0; \
     (_regs)->psw.amode = 1; \
-    (_regs)->psw.AMASK = AMASK31; \
+    if (sysblk.am31mode == 32) \
+    { \
+      (_regs)->psw.amode32 = 1; \
+      (_regs)->psw.AMASK = AMASK32; \
+      (_addr) ^= 0x80000000; \
+    } \
+    else if (sysblk.am31mode == 64) \
+    { \
+      (_regs)->psw.amode64 = 1; \
+      (_regs)->psw.AMASK = AMASK64; \
+      (_addr) ^= 0x80000000; \
+    } \
+    else if (sysblk.am31mode == 24) \
+    { \
+      (_regs)->psw.amode = 0; \
+      (_regs)->psw.AMASK = AMASK24; \
+      (_addr) ^= 0x80000000; \
+    } \
+    else { \
+      (_regs)->psw.AMASK = AMASK31; \
+    } \
   } else { \
-    (_regs)->psw.amode64 = (_regs)->psw.amode = 0; \
+    (_regs)->psw.amode64 = (_regs)->psw.amode32 = (_regs)->psw.amode = 0; \
     (_regs)->psw.AMASK = AMASK24; \
+    if (sysblk.am24mode == 32) \
+    { \
+      (_regs)->psw.amode32 = 1; \
+      (_regs)->psw.amode = 1; \
+      (_regs)->psw.AMASK = AMASK32; \
+      (_addr) &= 0xFFFFFF; \
+    } \
+    else if (sysblk.am24mode == 64) \
+    { \
+      (_regs)->psw.amode64 = 1; \
+      (_regs)->psw.amode = 1; \
+      (_regs)->psw.AMASK = AMASK64; \
+      (_addr) &= 0xFFFFFF; \
+    } \
+    else if (sysblk.am24mode == 31) \
+    { \
+      (_regs)->psw.amode = 1; \
+      (_regs)->psw.AMASK = AMASK31; \
+      (_addr) &= 0xFFFFFF; \
+    } \
   } \
  } while (0)
 #else /* !defined(FEATURE_ESAME) */

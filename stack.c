@@ -41,6 +41,26 @@
 
 #include "inline.h"
 
+
+#if defined(FEATURE_S380) &&  __GEN_ARCH == 370
+
+VADR ARCH_DEP(locate_stack_entry) (int prinst, LSED *lsedptr,
+                                    REGS *regs)
+{
+    return 0;
+}
+
+void ARCH_DEP(unstack_registers) (int gtype, VADR lsea,
+                                int r1, int r2, REGS *regs)
+
+{
+    return;
+}
+
+#endif
+
+
+
 /*-------------------------------------------------------------------*/
 /* Linkage stack macro definitions                                   */
 /*-------------------------------------------------------------------*/

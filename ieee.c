@@ -82,6 +82,10 @@
 
 #endif  /* !defined(_IEEE_C) */
 
+#if defined(FEATURE_S380)
+#define FEATURE_ESAME
+#endif
+
 /* externally defined architecture-dependent functions */
 #define vfetch4 ARCH_DEP(vfetch4)
 #define vfetch8 ARCH_DEP(vfetch8)

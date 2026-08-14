@@ -261,7 +261,7 @@ static BYTE sba_code[] = { "\x40\xC1\xC2\xC3\xC4\xC5\xC6\xC7"
 #define TNSERROR        logmsg
 
 #define BUFLEN_3270     65536           /* 3270 Send/Receive buffer  */
-#define BUFLEN_1052     150             /* 1052 Send/Receive buffer  */
+#define BUFLEN_1052     65536           /* 1052 Send/Receive buffer  */
 
 
 #undef  FIX_QWS_BUG_FOR_MCS_CONSOLES
@@ -294,8 +294,8 @@ BYTE print_chars[17];
                 logmsg("%2.2X", c);
                 print_chars[i] = '.';
                 if (isprint(c)) print_chars[i] = c;
-                c = guest_to_host(c);
-                if (isprint(c)) print_chars[i] = c;
+                /* c = guest_to_host(c);
+                if (isprint(c)) print_chars[i] = c; */
             }
             else {
                 logmsg("  ");
@@ -1055,6 +1055,7 @@ int     num;                            /* Number of bytes received  */
 int     i;                              /* Array subscript           */
 BYTE    buf[BUFLEN_1052];               /* Receive buffer            */
 BYTE    c;                              /* Character work area       */
+static BYTE wont_tmark[] = { IAC, WONT, TIMING_MARK };
 
     /* Receive bytes from client */
     num = recv (dev->fd, buf, BUFLEN_1052, 0);
@@ -1082,14 +1083,14 @@ BYTE    c;                              /* Character work area       */
     for (i = 0; i < num; i++)
     {
         /* Decrement keyboard buffer pointer if backspace received */
-        if (buf[i] == 0x08)
+        if ((dev->devtype != 0x1052) && (buf[i] == 0x08))
         {
             if (dev->keybdrem > 0) dev->keybdrem--;
             continue;
         }
 
         /* Return unit exception if control-C received */
-        if (buf[i] == 0x03)
+        if ((dev->devtype != 0x1052) && (buf[i] == 0x03))
         {
             dev->keybdrem = 0;
             return (CSW_ATTN | CSW_UX);
@@ -1113,8 +1114,17 @@ BYTE    c;                              /* Character work area       */
             && dev->buf[dev->keybdrem - 2] == IAC
             && dev->buf[dev->keybdrem - 1] == EC)
         {
-            dev->keybdrem -= 2;
-            if (dev->keybdrem > 0) dev->keybdrem--;
+            if (dev->devtype != 0x1052)
+            {
+                dev->keybdrem -= 2;
+                if (dev->keybdrem > 0) dev->keybdrem--;
+            }
+            else
+            {
+                /* we need to see backspaces */
+                dev->keybdrem--;
+                dev->buf[dev->keybdrem - 1] = 0x08;
+            }
             continue;
         }
 
@@ -1144,9 +1154,31 @@ BYTE    c;                              /* Character work area       */
             && (dev->buf[dev->keybdrem - 1] == BRK
                 || dev->buf[dev->keybdrem - 1] == IP))
         {
-            dev->keybdrem = 0;
-            return (CSW_ATTN | CSW_UX);
+            if (dev->devtype == 0x1052)
+            {
+                dev->keybdrem--;
+                dev->buf[dev->keybdrem - 1] = 0x03;
+                continue;
+            }
+            else
+            {
+                dev->keybdrem = 0;
+                return (CSW_ATTN | CSW_UX);
+            }
         }
+
+#if defined(FEATURE_S380)
+        /* Swallow a timing mark */
+        if (dev->keybdrem >= 3
+            && dev->buf[dev->keybdrem - 3] == IAC
+            && dev->buf[dev->keybdrem - 2] == DO
+            && dev->buf[dev->keybdrem - 1] == TIMING_MARK)
+        {
+            dev->keybdrem -= 3;
+            send(dev->fd, wont_tmark, sizeof(wont_tmark), 0);
+            continue;
+        }
+#endif
 
         /* Return unit check with overrun if telnet CRLF
            sequence received and more data follows the CRLF */
@@ -1161,27 +1193,54 @@ BYTE    c;                              /* Character work area       */
             return (CSW_ATTN | CSW_UC);
         }
 
+        if (dev->devtype == 0x1052)
+        {
+            /* Convert \r\n to \n */
+            if (dev->keybdrem >= 2
+                && dev->buf[dev->keybdrem - 2] == '\r'
+                && dev->buf[dev->keybdrem - 1] == '\n')
+            {
+                dev->keybdrem--;
+                dev->buf[dev->keybdrem - 1] = '\n';
+                continue;
+            }
+        }
+
     } /* end for(i) */
 
-    /* Return zero status if CRLF was not yet received */
-    if (dev->keybdrem < 2
-        || dev->buf[dev->keybdrem - 2] != '\r'
-        || dev->buf[dev->keybdrem - 1] != '\n')
-        return 0;
+    if (dev->devtype != 0x1052)
+    {
+        /* Return zero status if CRLF was not yet received */
+        if (dev->keybdrem < 2
+            || dev->buf[dev->keybdrem - 2] != '\r'
+            || dev->buf[dev->keybdrem - 1] != '\n')
+            return 0;
+    }
 
     /* Trace the complete keyboard data packet */
     TNSDEBUG2("console: DBG016: Packet received length=%d\n",
             dev->keybdrem);
     packet_trace (dev->buf, dev->keybdrem);
 
-    /* Strip off the CRLF sequence */
-    dev->keybdrem -= 2;
+    if (dev->devtype != 0x1052)
+    {
+        /* Strip off the CRLF sequence */
+        dev->keybdrem -= 2;
+    }
 
     /* Translate the keyboard buffer to EBCDIC */
     for (i = 0; i < dev->keybdrem; i++)
     {
         c = dev->buf[i];
-        dev->buf[i] = (isprint(c) ? host_to_guest(c) : SPACE);
+        if (dev->devtype == 0x1052)
+        {
+            dev->buf[i] = host_to_guest(c);
+            /* logmsg("converted %x to %x\n", c, dev->buf[i]); */
+        }
+        else
+        {
+            dev->buf[i] = (isprint(c) ? host_to_guest(c) : SPACE);
+        }
     } /* end for(i) */
 
     /* Trace the EBCDIC input data */
@@ -1209,7 +1268,11 @@ BYTE    c;                              /* Character work area       */
 
 /*
 static char *herclogo[]={
+#ifdef FEATURE_S380
+    " HHH          HHH   The S/370, S/380, ESA/390 and z/Architecture",
+#else
     " HHH          HHH   The S/370, ESA/390 and z/Architecture",
+#endif
     " HHH          HHH                 Emulator",
     " HHH          HHH",
     " HHH          HHH  EEEE RRR   CCC U  U L    EEEE  SSS",
@@ -1270,7 +1333,11 @@ static char *herclogo[]={
 "@ALIGN LEFT",
 "",
 "",
+#ifdef FEATURE_S380
+"           HHH          HHH   The S/370, S/380, ESA/390 and z/Architecture",
+#else
 "           HHH          HHH   The S/370, ESA/390 and z/Architecture",
+#endif
 "           HHH          HHH                 Emulator",
 "           HHH          HHH",
 "           HHH          HHH  EEEE RRR   CCC U  U L    EEEE  SSS",
@@ -1778,7 +1845,7 @@ char                    *logoout;
         }
 
         /* Close the connection and terminate the thread */
-        SLEEP (5);
+        SLEEP (8);
         close_socket (csock);
         if (clientip) free(clientip);
         return NULL;
@@ -3455,7 +3522,7 @@ BYTE    stat;                           /* Unit status               */
         for (len = 0; len < num; len++)
         {
             c = guest_to_host(iobuf[len]);
-            if (!isprint(c) && c != 0x0a && c != 0x0d) c = SPACE;
+            if (!isprint(c) && c != 0x0a && c != 0x0d && c != 0x1b) c = SPACE;
             iobuf[len] = c;
         } /* end for(len) */
 
@@ -3527,7 +3594,9 @@ BYTE    stat;                           /* Unit status               */
 
                 /* Exit if error or end of line */
                 if (stat != 0)
+                {
                     break;
+                }
 
             } /* end while */
 

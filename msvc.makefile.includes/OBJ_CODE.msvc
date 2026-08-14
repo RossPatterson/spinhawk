@@ -110,6 +110,7 @@ hengine_OBJ = \
     $(O)dfp.obj      \
     $(O)diagmssf.obj \
     $(O)diagnose.obj \
+    $(O)dyn75.obj    \
     $(O)ecpsvm.obj   \
     $(O)esame.obj    \
     $(O)external.obj \
@@ -141,6 +142,7 @@ hengine_OBJ = \
     $(O)sie.obj      \
     $(O)sr.obj       \
     $(O)stack.obj    \
+    $(O)tcpip.obj    \
     $(O)timer.obj    \
     $(O)trace.obj    \
     $(O)vector.obj   \
