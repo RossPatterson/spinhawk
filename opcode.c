@@ -40,8 +40,6 @@
 
 #include "opcode.h"
 
-DEF_INST(dyninst_opcode_75);
-
 #define UNDEF_INST(_x) \
         DEF_INST(_x) { ARCH_DEP(operation_exception) \
         (inst,regs); }
@@ -2326,7 +2324,7 @@ DLL_EXPORT zz_func opcode_table[256][GEN_MAXARCH] = {
  /*72*/   GENx___x___x___ ,
  /*73*/   GENx___x___x___ ,
  /*74*/   GENx___x___x___ ,
- /*75*/   GENx370x390x900 (dyninst_opcode_75,RX,"TCPIP"),
+ /*75*/   GENx___x___x___ ,
  /*76*/   GENx___x___x___ ,
  /*77*/   GENx___x___x___ ,
  /*78*/   GENx370x390x900 (load_float_short,RX,"LE"),
